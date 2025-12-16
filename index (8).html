@@ -1,0 +1,2620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>K8S Guardian v1.0</title>
+  <meta name="description" content="K8S Guardian: a futuristic Kubernetes YAML security scanner with configurable checks, real-time validation, auto-fix engine, scoring dashboard, and exportable reports.">
+  <meta name="author" content="Chandan Kumar">
+  <meta name="theme-color" content="#0b1220">
+
+  <meta property="og:title" content="K8S Guardian v1.0">
+  <meta property="og:description" content="Paste Kubernetes YAML, run a comprehensive security scan, auto-fix common issues, and export reports with K8S Guardian.">
+  <meta property="og:type" content="website">
+
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%2360a5fa' d='M32 4l22 10v16c0 16-9.6 26.5-22 30C19.6 56.5 10 46 10 30V14L32 4z'/%3E%3Cpath fill='%230b1220' d='M32 12l14 6v11c0 10.5-5.9 17.5-14 20-8.1-2.5-14-9.5-14-20V18l14-6z'/%3E%3C/svg%3E">
+
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script defer src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js"></script>
+  <!-- YAML Parser (js-yaml) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+  <!-- PDF Export (jsPDF) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.3/dist/jspdf.plugin.autotable.min.js"></script>
+
+  <style>
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .animate-spin { animation: spin 1s linear infinite; }
+
+    @keyframes shimmer {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+    .shimmer { animation: shimmer 2s infinite; }
+
+    /* Landing futuristic motion */
+    @keyframes floaty {
+      0%, 100% { transform: translate3d(0, 0, 0); }
+      50% { transform: translate3d(0, -14px, 0); }
+    }
+    .floaty { animation: floaty 7s ease-in-out infinite; }
+
+    @keyframes floaty2 {
+      0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+      50% { transform: translate3d(0, 18px, 0) scale(1.03); }
+    }
+    .floaty2 { animation: floaty2 9s ease-in-out infinite; }
+
+    @keyframes gridDrift {
+      0% { transform: translate3d(0,0,0); }
+      100% { transform: translate3d(120px, 60px, 0); }
+    }
+    .grid-drift { animation: gridDrift 22s linear infinite; }
+
+    .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+
+    /* Hide scrollbars but keep scroll functionality (for line numbers sync) */
+    .no-scrollbar { scrollbar-width: none; }
+    .no-scrollbar::-webkit-scrollbar { width: 0px; height: 0px; }
+
+    textarea:focus { outline: none; }
+
+    .gradient-text {
+      background: linear-gradient(to right, #60a5fa, #a855f7, #ec4899);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* Hard lock editor size + scrolling */
+    #yaml-editor {
+      height: 250px;
+      max-height: 250px;
+      min-height: 250px;
+      box-sizing: border-box;
+      overflow-y: auto;
+    }
+    @media (min-width: 640px) {
+      #yaml-editor {
+        height: 300px;
+        max-height: 300px;
+        min-height: 300px;
+      }
+    }
+    @media (min-width: 1024px) {
+      #yaml-editor {
+        height: 350px;
+        max-height: 350px;
+        min-height: 350px;
+      }
+    }
+
+    /* Scan button state machine (keeps animations, shows scanning UI) */
+    #scan-btn[data-state="disabled"] { opacity: 0.55; pointer-events: none; filter: saturate(0.8) contrast(0.9); }
+    #scan-btn[data-state="scanning"] { cursor: progress; }
+    #scan-btn .scan-idle { display: flex; }
+    #scan-btn .scan-running { display: none; }
+    #scan-btn[data-state="scanning"] .scan-idle { display: none; }
+    #scan-btn[data-state="scanning"] .scan-running { display: flex; }
+
+    /* Mobile header controls drawer */
+    @media (max-width: 639px) {
+      #header-controls.open {
+        display: flex !important;
+        position: fixed;
+        top: calc(env(safe-area-inset-top) + 88px);
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        z-index: 60;
+        flex-direction: column;
+        flex-wrap: nowrap;
+        align-items: stretch;
+        gap: 12px;
+        padding: 12px;
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.96);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        box-shadow: 0 0 50px rgba(59, 130, 246, 0.12);
+        backdrop-filter: blur(18px);
+        overflow-y: auto;
+      }
+      #mobile-overlay.open { display: block !important; }
+      body.mobile-menu-open { overflow: hidden; }
+    }
+
+    /* Reduce motion */
+    @media (prefers-reduced-motion: reduce) {
+      .animate-pulse, .animate-spin, .shimmer, .floaty, .floaty2, .grid-drift { animation: none !important; }
+      * { scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+
+<body class="bg-slate-950">
+  <noscript>
+    <div class="p-4 text-center bg-red-950 text-red-200 border-b border-red-700">
+      This app requires JavaScript enabled.
+    </div>
+  </noscript>
+
+  <!-- Landing Page -->
+  <div id="landing-page" class="relative min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950">
+    <nav class="relative z-10 border-b border-slate-800/50 bg-slate-900/95 backdrop-blur-xl">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between items-center h-20">
+          <div class="flex items-center gap-3">
+            <div class="p-2.5 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 shadow-lg">
+              <i data-lucide="shield" class="w-8 h-8 text-white"></i>
+            </div>
+            <div>
+              <h1 class="text-2xl font-black text-white">K8S GUARDIAN</h1>
+              <p class="text-xs text-blue-400">v1.0</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button type="button" onclick="showApp()" class="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold rounded-lg transition-all flex items-center gap-2 shadow-lg shadow-blue-500/50">
+              Launch App <i data-lucide="rocket" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Futuristic background layer -->
+    <div class="absolute inset-0 overflow-hidden pointer-events-none">
+      <div class="absolute -top-24 -left-24 w-[380px] h-[380px] rounded-full bg-blue-600/25 blur-3xl floaty"></div>
+      <div class="absolute top-28 -right-24 w-[420px] h-[420px] rounded-full bg-purple-600/20 blur-3xl floaty2"></div>
+      <div class="absolute -bottom-24 left-1/3 w-[520px] h-[520px] rounded-full bg-pink-600/15 blur-3xl floaty"></div>
+      <div class="absolute inset-0 opacity-[0.07] grid-drift" style="background-image: linear-gradient(0deg, transparent 24%, rgba(96,165,250,.35) 25%, rgba(96,165,250,.35) 26%, transparent 27%, transparent 74%, rgba(96,165,250,.35) 75%, rgba(96,165,250,.35) 76%, transparent 77%, transparent), linear-gradient(90deg, transparent 24%, rgba(168,85,247,.35) 25%, rgba(168,85,247,.35) 26%, transparent 27%, transparent 74%, rgba(168,85,247,.35) 75%, rgba(168,85,247,.35) 76%, transparent 77%, transparent); background-size: 64px 64px;"></div>
+    </div>
+
+    <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-16 text-center">
+      <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-blue-500/30 bg-slate-900/40 backdrop-blur mb-6">
+        <i data-lucide="activity" class="w-4 h-4 text-cyan-300 animate-spin"></i>
+        <span class="text-xs font-black tracking-[0.3em] text-cyan-200">NEURAL SECURITY SUITE</span>
+      </div>
+
+      <h2 class="text-5xl md:text-7xl font-black text-white mb-6">
+        Advanced K8s<br>
+        <span class="gradient-text">Security Platform</span>
+      </h2>
+      <p class="text-xl text-slate-400 max-w-2xl mx-auto mb-10">
+        Configurable checks • Real-time validation • Auto-fix engine • Exportable security reports
+      </p>
+
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <button type="button" onclick="showApp()" class="px-10 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-black rounded-xl text-lg hover:from-blue-500 hover:to-purple-500 transition-all shadow-lg shadow-blue-500/30">
+          Start Validating <i data-lucide="arrow-right" class="w-5 h-5 inline ml-2"></i>
+        </button>
+        <a href="#features" class="px-10 py-4 bg-slate-900/40 hover:bg-slate-900/60 border border-slate-700/70 text-slate-100 font-black rounded-xl text-lg transition-all">
+          Explore Features <i data-lucide="sparkles" class="w-5 h-5 inline ml-2 text-pink-300"></i>
+        </a>
+      </div>
+
+      <div class="mt-10 flex items-center justify-center gap-2">
+        <i data-lucide="user" class="w-4 h-4 text-blue-400"></i>
+        <span class="text-sm text-slate-400">Developed by <span class="font-bold text-blue-400">Chandan Kumar</span></span>
+      </div>
+    </div>
+
+    <!-- Features Section -->
+    <section id="features" class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-20">
+      <div class="bg-slate-900/35 border border-slate-800/70 backdrop-blur rounded-3xl p-6 sm:p-10 shadow-2xl">
+        <div class="flex items-start justify-between gap-6 flex-wrap">
+          <div>
+            <h3 class="text-2xl sm:text-3xl font-black text-white">What this platform does</h3>
+            <p class="text-slate-400 mt-2 max-w-2xl">
+              Paste Kubernetes YAML and run a comprehensive policy scan. You’ll get a security score, categorized findings (Critical/High/Medium/Low), and one-click Auto-Fix for common misconfigurations.
+            </p>
+          </div>
+          <div class="px-4 py-2 rounded-2xl border border-blue-500/30 bg-gradient-to-r from-blue-600/15 to-purple-600/15 text-xs font-black tracking-[0.25em] text-blue-200">
+            6 CATEGORIES • CONFIGURABLE CHECKS
+          </div>
+        </div>
+
+        <div class="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div class="group rounded-2xl border border-slate-800/70 bg-gradient-to-br from-slate-950/40 to-slate-900/30 p-6 hover:border-cyan-400/40 transition shadow-[0_0_0px_rgba(34,211,238,0)] hover:shadow-[0_0_35px_rgba(34,211,238,0.10)]">
+            <div class="flex items-center gap-3">
+              <div class="p-3 rounded-xl bg-cyan-500/15 border border-cyan-400/30">
+                <i data-lucide="radar" class="w-5 h-5 text-cyan-200"></i>
+              </div>
+              <div class="text-white font-black">Comprehensive Scan</div>
+            </div>
+            <p class="text-slate-400 mt-3 text-sm">Detect risky settings like privileged containers, host namespaces, missing probes, missing resources, and more.</p>
+          </div>
+
+          <div class="group rounded-2xl border border-slate-800/70 bg-gradient-to-br from-slate-950/40 to-slate-900/30 p-6 hover:border-purple-400/40 transition shadow-[0_0_0px_rgba(168,85,247,0)] hover:shadow-[0_0_35px_rgba(168,85,247,0.12)]">
+            <div class="flex items-center gap-3">
+              <div class="p-3 rounded-xl bg-purple-500/15 border border-purple-400/30">
+                <i data-lucide="activity" class="w-5 h-5 text-purple-200"></i>
+              </div>
+              <div class="text-white font-black">Real-time Validation</div>
+            </div>
+            <p class="text-slate-400 mt-3 text-sm">Auto-validate YAML on changes and surface indentation/syntax issues instantly.</p>
+          </div>
+
+          <div class="group rounded-2xl border border-slate-800/70 bg-gradient-to-br from-slate-950/40 to-slate-900/30 p-6 hover:border-emerald-400/40 transition shadow-[0_0_0px_rgba(52,211,153,0)] hover:shadow-[0_0_35px_rgba(52,211,153,0.12)]">
+            <div class="flex items-center gap-3">
+              <div class="p-3 rounded-xl bg-emerald-500/15 border border-emerald-400/30">
+                <i data-lucide="wrench" class="w-5 h-5 text-emerald-200"></i>
+              </div>
+              <div class="text-white font-black">One-click Auto-Fix</div>
+            </div>
+            <p class="text-slate-400 mt-3 text-sm">Automatically apply common security hardening fixes and re-score the manifest.</p>
+          </div>
+
+          <div class="group rounded-2xl border border-slate-800/70 bg-gradient-to-br from-slate-950/40 to-slate-900/30 p-6 hover:border-blue-400/40 transition shadow-[0_0_0px_rgba(59,130,246,0)] hover:shadow-[0_0_35px_rgba(59,130,246,0.12)]">
+            <div class="flex items-center gap-3">
+              <div class="p-3 rounded-xl bg-blue-500/15 border border-blue-400/30">
+                <i data-lucide="sliders" class="w-5 h-5 text-blue-200"></i>
+              </div>
+              <div class="text-white font-black">Configurable Checks</div>
+            </div>
+            <p class="text-slate-400 mt-3 text-sm">Enable/disable individual checks across Security, Resources, Reliability, Networking, Storage, Advanced.</p>
+          </div>
+
+          <div class="group rounded-2xl border border-slate-800/70 bg-gradient-to-br from-slate-950/40 to-slate-900/30 p-6 hover:border-orange-400/40 transition shadow-[0_0_0px_rgba(249,115,22,0)] hover:shadow-[0_0_35px_rgba(249,115,22,0.10)]">
+            <div class="flex items-center gap-3">
+              <div class="p-3 rounded-xl bg-orange-500/15 border border-orange-400/30">
+                <i data-lucide="bar-chart-3" class="w-5 h-5 text-orange-200"></i>
+              </div>
+              <div class="text-white font-black">Scoring Dashboard</div>
+            </div>
+            <p class="text-slate-400 mt-3 text-sm">Get a score out of 100 with grade and severity breakdown to track security posture.</p>
+          </div>
+
+          <div class="group rounded-2xl border border-slate-800/70 bg-gradient-to-br from-slate-950/40 to-slate-900/30 p-6 hover:border-pink-400/40 transition shadow-[0_0_0px_rgba(236,72,153,0)] hover:shadow-[0_0_35px_rgba(236,72,153,0.10)]">
+            <div class="flex items-center gap-3">
+              <div class="p-3 rounded-xl bg-pink-500/15 border border-pink-400/30">
+                <i data-lucide="download" class="w-5 h-5 text-pink-200"></i>
+              </div>
+              <div class="text-white font-black">Exportable Report</div>
+            </div>
+            <p class="text-slate-400 mt-3 text-sm">Download a JSON report to share with teams or attach in CI/CD pipelines.</p>
+          </div>
+        </div>
+
+        <div class="mt-10 border-t border-slate-800/70 pt-8">
+          <div class="flex items-center gap-2 text-xs font-black tracking-[0.3em] text-slate-400">
+            <i data-lucide="git-branch" class="w-4 h-4 text-blue-300"></i>
+            HOW IT WORKS
+          </div>
+
+          <div class="mt-5 grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="rounded-2xl border border-slate-800/70 bg-slate-950/35 p-5">
+              <div class="flex items-center gap-2 text-white font-black">
+                <span class="w-6 h-6 rounded-lg bg-blue-500/20 border border-blue-400/40 inline-flex items-center justify-center text-xs">1</span>
+                Paste YAML
+              </div>
+              <p class="text-slate-400 text-sm mt-2">Drop your Deployment/Service/Ingress manifests into the Neural Editor.</p>
+            </div>
+            <div class="rounded-2xl border border-slate-800/70 bg-slate-950/35 p-5">
+              <div class="flex items-center gap-2 text-white font-black">
+                <span class="w-6 h-6 rounded-lg bg-purple-500/20 border border-purple-400/40 inline-flex items-center justify-center text-xs">2</span>
+                Run Scan
+              </div>
+              <p class="text-slate-400 text-sm mt-2">The engine evaluates security + reliability + resource policies.</p>
+            </div>
+            <div class="rounded-2xl border border-slate-800/70 bg-slate-950/35 p-5">
+              <div class="flex items-center gap-2 text-white font-black">
+                <span class="w-6 h-6 rounded-lg bg-orange-500/20 border border-orange-400/40 inline-flex items-center justify-center text-xs">3</span>
+                Review Findings
+              </div>
+              <p class="text-slate-400 text-sm mt-2">See prioritized issues (Critical → Low) with suggested fixes.</p>
+            </div>
+            <div class="rounded-2xl border border-slate-800/70 bg-slate-950/35 p-5">
+              <div class="flex items-center gap-2 text-white font-black">
+                <span class="w-6 h-6 rounded-lg bg-emerald-500/20 border border-emerald-400/40 inline-flex items-center justify-center text-xs">4</span>
+                Auto-Fix + Export
+              </div>
+              <p class="text-slate-400 text-sm mt-2">Apply fixes, re-score instantly, and export a shareable report.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-10 flex items-center justify-center">
+        <button type="button" onclick="showApp()" class="px-10 py-4 bg-gradient-to-r from-cyan-500 via-blue-600 to-purple-600 text-white font-black rounded-2xl text-lg hover:from-cyan-400 hover:via-blue-500 hover:to-purple-500 transition-all shadow-xl shadow-blue-500/20">
+          Launch Neural Validator <i data-lucide="rocket" class="w-5 h-5 inline ml-2"></i>
+        </button>
+      </div>
+
+    </section>
+  </div>
+
+  <!-- Main App -->
+  <div id="main-app" class="hidden min-h-screen bg-slate-950">
+    <!-- Header -->
+    <div id="app-header" class="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-xl border-b border-slate-800">
+      <div class="max-w-[2000px] mx-auto px-6 py-4">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div class="flex items-center gap-3">
+            <div class="p-2 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 animate-pulse">
+              <i data-lucide="shield" class="w-7 h-7 text-white"></i>
+            </div>
+            <div>
+              <h1 class="text-xl md:text-2xl font-black text-white">K8S GUARDIAN</h1>
+              <p class="text-xs text-blue-400">v1.0 • Real-time</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 flex-wrap">
+            <!-- Mobile controls toggle -->
+            <button type="button" id="mobile-controls-btn" onclick="toggleMobileControls()" class="sm:hidden px-3 py-2 bg-slate-800/70 border border-slate-700 rounded-xl text-sm font-black text-white flex items-center gap-2">
+              <i data-lucide="sliders" class="w-4 h-4 text-cyan-200"></i>
+              Controls
+            </button>
+
+            <div id="header-controls" class="hidden sm:flex items-center gap-3 flex-wrap">
+            <div class="flex items-center gap-2 px-3 py-1.5 bg-slate-800/50 rounded-lg">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <span class="text-xs text-slate-400">Auto-Validate</span>
+                <button type="button" id="auto-validate-toggle" onclick="toggleAutoValidate()" class="relative w-10 h-5 rounded-full transition">
+                  <div class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform"></div>
+                </button>
+              </label>
+            </div>
+            <div id="indent-fix-btn" class="hidden">
+              <button type="button" onclick="autoCorrectIndent()" class="px-3 py-1.5 bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 rounded-lg text-xs font-bold flex items-center gap-1">
+                <i data-lucide="alert-triangle" class="w-3 h-3"></i>
+                Fix <span id="indent-count">0</span>
+              </button>
+            </div>
+            <button type="button" onclick="toggleDarkMode()" id="theme-toggle" class="p-3 rounded-xl transition-all shadow-lg bg-gradient-to-br from-slate-700 to-slate-800 border-2 border-slate-600" aria-label="Toggle theme">
+              <span id="theme-icon" class="inline-flex"></span>
+            </button>
+            <button type="button" id="export-btn" onclick="exportReport()" class="hidden px-3 py-1.5 bg-blue-500/20 border border-blue-500/40 text-blue-300 rounded-lg text-xs font-bold items-center gap-1">
+              <i data-lucide="download" class="w-3 h-3"></i>
+              Export JSON
+            </button>
+            <button type="button" id="export-pdf-btn" onclick="exportPDF()" class="hidden px-3 py-1.5 bg-purple-500/20 border border-purple-500/40 text-purple-200 rounded-lg text-xs font-bold items-center gap-1">
+              <i data-lucide="file-text" class="w-3 h-3"></i>
+              Export PDF
+            </button>
+            <div class="flex items-center gap-3">
+              <div id="realtime-clock" class="select-none px-3 py-2 rounded-xl border border-cyan-400/25 bg-gradient-to-r from-cyan-500/10 via-blue-500/10 to-purple-500/10 backdrop-blur shadow-[0_0_25px_rgba(34,211,238,0.12)]">
+                <div class="flex items-center gap-2 text-xs font-black tracking-[0.22em] text-cyan-200">
+                  <i data-lucide="activity" class="w-4 h-4 text-cyan-300 animate-pulse"></i>
+                  REALTIME
+                </div>
+                <div id="clock-time" class="font-mono text-sm text-white mt-0.5">--:--:--</div>
+              </div>
+              <button type="button" onclick="hidApp()" class="px-4 py-2 bg-slate-800 rounded-lg text-sm font-bold text-white">
+                ← Back
+              </button>
+            </div>
+
+            </div> <!-- /#header-controls -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile overlay (for header controls drawer) -->
+    <div id="mobile-overlay" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onclick="toggleMobileControls(false)"></div>
+
+    <!-- Config Panel -->
+    <div class="max-w-[2000px] mx-auto px-4 sm:px-6 pt-4 sm:pt-6 pb-0">
+      <div class="mb-6">
+        <div id="config-panel" class="w-full bg-slate-900/90 border-slate-800 border-2 rounded-2xl shadow-2xl">
+          <div class="sticky top-0 bg-gradient-to-r from-blue-600 to-purple-600 p-4 flex items-center justify-between rounded-t-2xl">
+            <div class="flex items-center gap-2">
+              <i data-lucide="sliders" class="w-5 h-5 text-white"></i>
+              <h3 class="font-bold text-white">Security Checks</h3>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="hidden sm:block text-xs text-blue-200 font-semibold">All 6 categories visible</div>
+              <button type="button" id="config-toggle-btn" onclick="toggleConfigPanel()" class="sm:hidden px-3 py-1.5 rounded-xl bg-slate-950/25 border border-white/20 text-xs font-black text-white flex items-center gap-2">
+                <i data-lucide="chevrons-up-down" class="w-4 h-4"></i>
+                <span id="config-toggle-text">Hide</span>
+              </button>
+            </div>
+          </div>
+          <div id="config-body" class="p-4">
+            <div id="config-categories" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="max-w-[2000px] mx-auto px-3 sm:px-6 py-4 sm:py-8">
+
+      <!-- Mobile panel switcher -->
+      <div class="lg:hidden mb-4">
+        <div class="grid grid-cols-2 gap-3 p-2 rounded-2xl border border-slate-800 bg-slate-900/60 backdrop-blur">
+          <button type="button" id="tab-editor" onclick="setMobileTab('editor')" class="px-4 py-3 rounded-xl text-sm font-black transition-all border">
+            <span class="inline-flex items-center gap-2">
+              <i data-lucide="code-2" class="w-4 h-4"></i>
+              Editor
+            </span>
+          </button>
+          <button type="button" id="tab-results" onclick="setMobileTab('results')" class="px-4 py-3 rounded-xl text-sm font-black transition-all border">
+            <span class="inline-flex items-center gap-2">
+              <i data-lucide="shield" class="w-4 h-4"></i>
+              Results
+            </span>
+          </button>
+        </div>
+        <p class="mt-2 text-xs text-slate-500">Tip: switch panels for a cleaner mobile experience.</p>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-8">
+        <!-- Left Column: Editor -->
+        <div id="panel-editor" class="lg:col-span-6">
+          <!-- Score Dashboard -->
+          <div id="score-dashboard" class="hidden mb-8 bg-gradient-to-br from-blue-900/50 to-purple-900/50 border-blue-500/30 backdrop-blur border rounded-2xl p-6 md:p-8">
+            <div class="flex flex-col lg:flex-row items-center justify-between gap-6">
+              <div class="flex items-center gap-6 md:gap-8">
+                <div class="p-4 md:p-6 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 animate-pulse">
+                  <i data-lucide="award" class="w-12 md:w-16 h-12 md:h-16 text-white"></i>
+                </div>
+                <div>
+                  <div class="text-sm font-bold text-blue-300 mb-2 flex items-center gap-2">
+                    SECURITY SCORE
+                    <span id="live-indicator" class="hidden px-2 py-0.5 bg-green-500/20 text-green-300 text-xs rounded-full animate-pulse flex items-center gap-1">
+                      <i data-lucide="activity" class="w-3 h-3 animate-spin"></i>
+                      LIVE
+                    </span>
+                  </div>
+                  <div class="flex items-baseline gap-2 md:gap-4">
+                    <div id="score-value" class="text-6xl md:text-8xl font-black text-white transition-all duration-500">0</div>
+                    <div class="text-2xl md:text-3xl text-slate-400">/ 100</div>
+                  </div>
+                  <div id="score-grade" class="inline-block px-4 py-2 rounded-lg font-black text-lg mt-2 bg-slate-500/40 text-slate-200">-</div>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-4 gap-2 md:gap-4 w-full lg:w-auto">
+                <div class="bg-red-500/20 border border-red-400/40 rounded-lg p-2 md:p-4 text-center">
+                  <div class="flex items-center justify-center mb-1"><i data-lucide="alert-octagon" class="w-4 h-4 text-red-400"></i></div>
+                  <div id="critical-count" class="text-2xl md:text-4xl font-black text-red-300">0</div>
+                  <div class="text-xs font-bold text-red-400 mt-1">CRITICAL</div>
+                </div>
+                <div class="bg-orange-500/20 border border-orange-400/40 rounded-lg p-2 md:p-4 text-center">
+                  <div class="flex items-center justify-center mb-1"><i data-lucide="alert-triangle" class="w-4 h-4 text-orange-400"></i></div>
+                  <div id="high-count" class="text-2xl md:text-4xl font-black text-orange-300">0</div>
+                  <div class="text-xs font-bold text-orange-400 mt-1">HIGH</div>
+                </div>
+                <div class="bg-yellow-500/20 border border-yellow-400/40 rounded-lg p-2 md:p-4 text-center">
+                  <div class="flex items-center justify-center mb-1"><i data-lucide="alert-circle" class="w-4 h-4 text-yellow-400"></i></div>
+                  <div id="medium-count" class="text-2xl md:text-4xl font-black text-yellow-300">0</div>
+                  <div class="text-xs font-bold text-yellow-400 mt-1">MEDIUM</div>
+                </div>
+                <div class="bg-blue-500/20 border border-blue-400/40 rounded-lg p-2 md:p-4 text-center">
+                  <div class="flex items-center justify-center mb-1"><i data-lucide="info" class="w-4 h-4 text-blue-400"></i></div>
+                  <div id="low-count" class="text-2xl md:text-4xl font-black text-blue-300">0</div>
+                  <div class="text-xs font-bold text-blue-400 mt-1">LOW</div>
+                </div>
+              </div>
+            </div>
+
+            <div id="autofix-progress" class="hidden mt-6">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-bold text-blue-300 flex items-center gap-2">
+                  <i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>
+                  Applying Fixes... <span id="fix-percent">0</span>%
+                </span>
+              </div>
+              <div class="h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div id="fix-bar" class="h-full bg-gradient-to-r from-green-500 via-emerald-500 to-green-600 transition-all duration-300" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <button type="button" id="autofix-btn" onclick="applyAutoFix()" class="hidden w-full mt-6 px-8 py-5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-black rounded-xl items-center justify-center gap-4 text-xl transform hover:scale-105 shadow-lg">
+              <i data-lucide="wrench" class="w-7 h-7 inline"></i>
+              AUTO-FIX <span id="autofix-count">0</span> ISSUES
+              <i data-lucide="sparkles" class="w-7 h-7 inline animate-pulse"></i>
+            </button>
+          </div>
+
+          <!-- Terminal -->
+          <div class="mb-8 bg-slate-900/50 border-slate-800 backdrop-blur border rounded-xl p-6">
+            <div class="flex items-center gap-4 mb-5 pb-4 border-b border-slate-800">
+              <i data-lucide="terminal" class="w-6 h-6 text-green-400"></i>
+              <span class="text-green-400 font-bold">SYSTEM TERMINAL</span>
+              <span id="validating-indicator" class="hidden ml-auto px-2 py-0.5 bg-blue-500/20 text-blue-300 text-xs rounded-full animate-pulse flex items-center gap-1">
+                <i data-lucide="refresh-cw" class="w-3 h-3 animate-spin"></i>
+                Validating...
+              </span>
+            </div>
+            <div id="scan-progress-container" class="hidden mb-4">
+              <div class="flex items-center justify-between mb-1 text-xs text-slate-400">
+                <span>Scanning... <span id="scan-percent">0</span>%</span>
+              </div>
+              <div class="h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div id="scan-bar" class="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all" style="width: 0%"></div>
+              </div>
+            </div>
+            <div id="terminal-output" class="space-y-1 max-h-48 overflow-y-auto text-sm font-mono scrollbar-thin" style="scroll-behavior: smooth;"></div>
+            <div id="cursor" class="text-green-400 inline-block">▋</div>
+          </div>
+
+          <!-- FUTURISTIC NEURAL EDITOR -->
+          <div class="relative group">
+            <div class="absolute -inset-1 bg-gradient-to-r from-blue-600/30 via-purple-600/30 to-pink-600/30 rounded-3xl blur-2xl opacity-0 group-hover:opacity-75 transition-opacity duration-500"></div>
+
+            <div class="relative bg-gradient-to-br from-slate-900 via-slate-950 to-black border-2 border-blue-500/50 rounded-3xl overflow-hidden shadow-2xl backdrop-blur-xl">
+              <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-blue-500 via-purple-500 to-transparent"></div>
+
+              <div class="relative border-b border-blue-500/20 bg-gradient-to-r from-blue-900/5 to-purple-900/5 backdrop-blur">
+                <div class="px-8 py-7 flex items-center justify-between">
+                  <div class="flex items-center gap-4">
+                    <div class="relative">
+                      <div class="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl blur-xl opacity-60 group-hover:opacity-100 transition-opacity duration-500 animate-pulse"></div>
+                      <div class="relative p-3 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 shadow-lg shadow-blue-500/50">
+                        <i data-lucide="code-2" class="w-6 h-6 text-white"></i>
+                      </div>
+                    </div>
+                    <div>
+                      <h2 class="text-2xl font-black bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 text-transparent bg-clip-text">NEURAL EDITOR</h2>
+                      <p class="text-xs text-blue-300/80 font-bold tracking-widest">⚡ AI-POWERED K8S VALIDATOR</p>
+                    </div>
+                  </div>
+                  <div class="flex gap-2">
+                    <button type="button" onclick="loadSample()" class="group/btn px-5 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-lg hover:shadow-blue-500/70 border border-blue-400/40 hover:border-blue-400/80 transform hover:scale-105">
+                      <i data-lucide="zap" class="w-4 h-4 group-hover/btn:animate-spin"></i>
+                      LOAD
+                    </button>
+                    <button type="button" onclick="clearEditor()" class="px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-lg hover:shadow-red-500/70 border border-red-400/40 hover:border-red-400/80 transform hover:scale-105">
+                      <i data-lucide="trash-2" class="w-4 h-4"></i>
+                      CLEAR
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="px-8 py-6 relative">
+                <div class="relative bg-gradient-to-b from-slate-950/50 to-black/50 border-2 border-slate-800/50 rounded-2xl overflow-hidden shadow-2xl">
+                  <div class="absolute inset-0 opacity-5 pointer-events-none" style="background-image: linear-gradient(0deg, transparent 24%, rgba(59, 130, 246, .05) 25%, rgba(59, 130, 246, .05) 26%, transparent 27%, transparent 74%, rgba(59, 130, 246, .05) 75%, rgba(59, 130, 246, .05) 76%, transparent 77%, transparent), linear-gradient(90deg, transparent 24%, rgba(59, 130, 246, .05) 25%, rgba(59, 130, 246, .05) 26%, transparent 27%, transparent 74%, rgba(59, 130, 246, .05) 75%, rgba(59, 130, 246, .05) 76%, transparent 77%, transparent); background-size: 50px 50px;"></div>
+
+                  <div class="relative flex h-[250px] sm:h-[300px] lg:h-[350px]">
+                    <div class="relative">
+                      <div class="absolute inset-y-0 right-0 w-px bg-gradient-to-b from-blue-500/40 via-purple-500/40 to-transparent"></div>
+                      <div id="line-numbers" class="bg-gradient-to-b from-slate-900/80 to-slate-950/80 backdrop-blur py-5 px-5 select-none text-right min-w-[70px] overflow-y-auto overflow-x-hidden flex-shrink-0 border-r border-blue-500/30 no-scrollbar">
+                        <div class="text-xs font-mono leading-7 text-slate-500 font-bold">1</div>
+                      </div>
+                    </div>
+
+                    <textarea
+                      id="yaml-editor"
+                      placeholder="// Paste Kubernetes YAML here...\n// Neural validation: ACTIVE\n// Security analysis: ENABLED"
+                      class="flex-1 py-5 px-6 font-mono text-sm bg-transparent text-emerald-400 resize-none placeholder-slate-600/50 leading-7 focus:outline-none overflow-y-auto scrollbar-thin scrollbar-thumb-blue-500/60 hover:scrollbar-thumb-blue-500/80 scrollbar-track-transparent transition-all"
+                      spellcheck="false"
+                      oninput="handleYamlChange()"
+                      onscroll="syncEditorScroll()"
+                    ></textarea>
+                  </div>
+
+                  <div id="error-badges" class="absolute top-5 right-5 flex flex-col gap-2 pointer-events-none"></div>
+                </div>
+
+                <div class="mt-6 flex items-center justify-between px-4 py-3 rounded-xl bg-gradient-to-r from-blue-900/20 to-purple-900/20 border border-blue-500/40 backdrop-blur">
+                  <div class="flex items-center gap-3">
+                    <div id="validation-dot" class="w-3 h-3 rounded-full bg-green-500 animate-pulse shadow-lg shadow-green-500/60"></div>
+                    <span id="validation-text" class="text-sm text-green-400 font-bold tracking-wider">NEURAL READY</span>
+                  </div>
+                  <div class="text-xs text-slate-400 font-mono">K8s • YAML • Live • Real-time</div>
+                </div>
+
+                <button
+                  type="button"
+                  id="scan-btn"
+                  data-state="disabled"
+                  onclick="analyzeYAML(false)"
+                  class="w-full mt-7 group/scan relative px-8 py-6 text-white font-black text-xl rounded-xl overflow-hidden transition-all duration-300"
+                >
+                  <div class="absolute inset-0 bg-gradient-to-r from-cyan-500 via-blue-600 via-purple-600 to-pink-500 group-hover/scan:from-cyan-400 group-hover/scan:via-blue-500 group-hover/scan:to-pink-400 transition-all duration-500 animate-pulse"></div>
+                  <div class="absolute inset-0 bg-gradient-to-r from-blue-500 to-pink-500 opacity-0 group-hover/scan:opacity-60 transition-opacity duration-500"></div>
+                  <div class="absolute inset-0 opacity-20 shimmer" style="background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);"></div>
+                  <div class="absolute -inset-1 bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 rounded-xl opacity-60 blur-lg -z-10 animate-pulse"></div>
+
+                  <div class="scan-idle relative flex items-center justify-center gap-4 group-hover/scan:gap-5 transition-all duration-300">
+                    <div class="relative">
+                      <i data-lucide="zap" class="w-7 h-7 group-hover/scan:animate-spin group-hover/scan:text-yellow-200 transition-colors drop-shadow-lg"></i>
+                      <div class="absolute inset-0 bg-yellow-400 blur-xl opacity-0 group-hover/scan:opacity-60 -z-10 rounded-full animate-pulse"></div>
+                    </div>
+                    <div>
+                      <div class="text-xs font-bold tracking-[0.3em] text-cyan-200 mb-1">⚡ NEURAL INTELLIGENCE ⚡</div>
+                      <span class="tracking-widest text-2xl drop-shadow-lg">RUN COMPREHENSIVE SCAN</span>
+                    </div>
+                    <div class="relative">
+                      <i data-lucide="radar" class="w-7 h-7 group-hover/scan:translate-x-2 transition-transform animate-spin drop-shadow-lg"></i>
+                      <div class="absolute inset-0 bg-purple-400 blur-xl opacity-0 group-hover/scan:opacity-50 -z-10 rounded-full animate-pulse"></div>
+                    </div>
+                  </div>
+
+                  <div class="scan-running relative items-center justify-center gap-4">
+                    <div class="relative">
+                      <i data-lucide="loader-2" class="w-7 h-7 animate-spin"></i>
+                      <div class="absolute inset-0 bg-cyan-400 blur-xl opacity-60 -z-10 rounded-full animate-pulse"></div>
+                    </div>
+                    <div class="text-left">
+                      <div class="text-xs font-bold tracking-[0.3em] text-cyan-200/90 mb-1">NEURAL SCAN IN PROGRESS</div>
+                      <div class="tracking-widest text-2xl drop-shadow-lg">ANALYZING CLUSTER RISK...</div>
+                    </div>
+                    <div class="relative">
+                      <i data-lucide="radar" class="w-7 h-7 animate-spin"></i>
+                      <div class="absolute inset-0 bg-purple-400 blur-xl opacity-50 -z-10 rounded-full animate-pulse"></div>
+                    </div>
+                  </div>
+
+                  <div class="absolute inset-0 opacity-60 shadow-2xl shadow-purple-500/80 rounded-xl"></div>
+                </button>
+              </div>
+
+              <div class="relative border-t border-blue-500/20 bg-gradient-to-r from-slate-900/50 to-slate-950/50 backdrop-blur px-8 py-4">
+                <div class="flex items-center justify-between text-xs">
+                  <div class="font-mono text-slate-400"><span class="text-blue-500">⚡</span> K8s Neural Validator • Advanced Security Analysis</div>
+                  <div class="font-mono"><span class="text-blue-500">v1.0</span> <span class="text-purple-500">REALTIME</span> <span class="text-pink-500">⚡</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Results -->
+        <div id="panel-results" class="lg:col-span-6 lg:overflow-y-auto lg:max-h-[calc(100vh-200px)]">
+          <div id="results-placeholder" class="bg-slate-900/50 backdrop-blur border border-slate-800 rounded-xl p-16 text-center">
+            <div class="w-36 h-36 mx-auto mb-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-3xl flex items-center justify-center animate-pulse">
+              <i data-lucide="shield" class="w-20 h-20 text-white"></i>
+            </div>
+            <h3 class="text-4xl font-black text-white mb-6">READY TO SCAN</h3>
+            <p class="text-base text-slate-400">Paste YAML and click "RUN SCAN"</p>
+            <div class="flex items-center justify-center gap-2 text-xs text-slate-500 mt-4">
+              <i data-lucide="user" class="w-4 h-4"></i>
+              <span>Powered by Chandan Kumar</span>
+            </div>
+          </div>
+
+          <div id="results-container" class="hidden space-y-6"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="bg-slate-900/50 border-t border-slate-800 backdrop-blur mt-8">
+      <div class="max-w-[2000px] mx-auto px-6 py-6">
+        <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+          <div class="text-sm text-slate-400">© 2024 K8S Guardian • All Rights Reserved</div>
+          <div class="flex items-center gap-3 px-4 py-2 rounded-lg bg-slate-800/50 border border-slate-700">
+            <div class="flex items-center gap-2">
+              <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                <i data-lucide="user" class="w-4 h-4 text-white"></i>
+              </div>
+              <div>
+                <div class="text-xs text-slate-500">Developed by</div>
+                <div class="text-sm font-bold gradient-text">Chandan Kumar</div>
+              </div>
+            </div>
+            <div class="h-8 w-px bg-slate-700"></div>
+            <div class="flex items-center gap-2">
+              <i data-lucide="git-branch" class="w-4 h-4 text-blue-400"></i>
+              <span class="text-sm font-bold text-white">v1.0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    'use strict';
+
+    const APP_VERSION = '1.0.0';
+    const STORAGE_KEYS = {
+      yaml: 'k8sg_yaml_v1',
+      enabledChecks: 'k8sg_checks_v1',
+      darkMode: 'k8sg_darkMode_v1',
+      autoValidate: 'k8sg_autoValidate_v1'
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    const escapeHtml = (s) => {
+      if (s === null || s === undefined) return '';
+      return String(s)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    };
+
+    let state = {
+      yamlContent: '',
+      result: null,
+      isAnalyzing: false,
+      terminalLines: [],
+      syntaxErrors: [],
+      scanProgress: 0,
+      isAutoFixing: false,
+      autoFixProgress: 0,
+      liveScore: 0,
+      darkMode: true,
+      indentationIssues: [],
+      autoValidate: true,
+      lastValidatedContent: '',
+      isAutoValidating: false,
+      validationTimeout: null,
+      persistTimeout: null,
+      cursorVisible: true,
+      enabledChecks: {
+        security: {
+          imageVersion: true, privilegedContainer: true, runAsNonRoot: true,
+          allowPrivilegeEscalation: true, readOnlyRootFilesystem: true, capabilities: true,
+          seccompProfile: true, serviceAccount: true, automountToken: true,
+          hostNetwork: true, hostPID: true, hostIPC: true, imagePullPolicy: true,
+          securityContext: true, podSecurityStandards: true,
+        },
+        resources: { limits: true, requests: true, resourceQuota: true, limitRange: true, priorityClass: true },
+        reliability: {
+          livenessProbe: true, readinessProbe: true, startupProbe: true,
+          podDisruptionBudget: true, replicaCount: true, rollingUpdate: true, podAntiAffinity: true
+        },
+        networking: { networkPolicy: true, serviceType: true, ingressConfig: true, dnsPolicy: true },
+        storage: { volumeSecurity: true, persistentVolumeClaim: true, emptyDirSizeLimit: true, storageClass: true },
+        advanced: { horizontalPodAutoscaler: true, initContainers: true, tolerations: true, nodeSelector: true, runtimeClass: true }
+      }
+    };
+
+    const sampleYAML = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-app
+  namespace: production
+  labels:
+    app: web-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web-app
+  template:
+    metadata:
+      labels:
+        app: web-app
+    spec:
+      containers:
+        - name: web
+          image: nginx:latest
+          ports:
+            - containerPort: 80`;
+
+    function safeCreateIcons() {
+      try {
+        if (window.lucide && typeof window.lucide.createIcons === 'function') {
+          window.lucide.createIcons();
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    function persistStateSoon() {
+      if (state.persistTimeout) clearTimeout(state.persistTimeout);
+      state.persistTimeout = setTimeout(() => {
+        try {
+          localStorage.setItem(STORAGE_KEYS.yaml, state.yamlContent);
+          localStorage.setItem(STORAGE_KEYS.enabledChecks, JSON.stringify(state.enabledChecks));
+          localStorage.setItem(STORAGE_KEYS.darkMode, JSON.stringify(state.darkMode));
+          localStorage.setItem(STORAGE_KEYS.autoValidate, JSON.stringify(state.autoValidate));
+        } catch (e) {
+          // ignore storage failures
+        }
+      }, 250);
+    }
+
+    function restoreState() {
+      try {
+        const savedYaml = localStorage.getItem(STORAGE_KEYS.yaml);
+        if (typeof savedYaml === 'string' && savedYaml.trim().length) {
+          state.yamlContent = savedYaml;
+          const ta = $('yaml-editor');
+          if (ta) ta.value = savedYaml;
+          // keep gutter aligned after restore
+          setTimeout(() => syncEditorScroll(), 0);
+        }
+
+        const savedChecks = localStorage.getItem(STORAGE_KEYS.enabledChecks);
+        if (savedChecks) {
+          const parsed = JSON.parse(savedChecks);
+          if (parsed && typeof parsed === 'object') state.enabledChecks = parsed;
+        }
+
+        const savedDark = localStorage.getItem(STORAGE_KEYS.darkMode);
+        if (savedDark !== null) state.darkMode = JSON.parse(savedDark);
+
+        const savedAutoV = localStorage.getItem(STORAGE_KEYS.autoValidate);
+        if (savedAutoV !== null) state.autoValidate = JSON.parse(savedAutoV);
+
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    function renderThemeIcon() {
+      const holder = $('theme-icon');
+      if (!holder) return;
+      holder.innerHTML = `<i data-lucide="${state.darkMode ? 'sun' : 'moon'}" class="w-5 h-5 ${state.darkMode ? 'text-yellow-400' : 'text-green-300'}"></i>`;
+      safeCreateIcons();
+    }
+
+    function applyThemeUI(logLine = false) {
+      const mainApp = $('main-app');
+      const body = document.body;
+      const header = $('app-header');
+
+      if (state.darkMode) {
+        if (mainApp) mainApp.style.backgroundColor = '#0f172a';
+        body.style.backgroundColor = '#0f172a';
+        if (header) {
+          header.style.backgroundColor = 'rgba(15, 23, 42, 0.95)';
+          header.style.borderColor = '#1e293b';
+        }
+      } else {
+        // “Hacking” green mode
+        if (mainApp) mainApp.style.backgroundColor = '#001a00';
+        body.style.backgroundColor = '#001a00';
+        if (header) {
+          header.style.backgroundColor = 'rgba(0, 26, 0, 0.95)';
+          header.style.borderColor = '#1a4d1a';
+        }
+      }
+
+      renderThemeIcon();
+      persistStateSoon();
+      if (logLine) addTerminalLine('[THEME] Switched to ' + (state.darkMode ? 'DARK' : 'HACKING') + ' mode');
+    }
+
+    function renderAutoValidateToggle() {
+      const btn = $('auto-validate-toggle');
+      if (!btn) return;
+      const dot = btn.querySelector('div');
+      btn.classList.remove('bg-green-500', 'bg-slate-700');
+      if (state.autoValidate) {
+        btn.classList.add('bg-green-500');
+        dot.classList.add('translate-x-5');
+        dot.classList.remove('translate-x-0');
+      } else {
+        btn.classList.add('bg-slate-700');
+        dot.classList.remove('translate-x-5');
+        dot.classList.add('translate-x-0');
+      }
+    }
+
+    function setScanBtnState() {
+      const scanBtn = $('scan-btn');
+      if (!scanBtn) return;
+      // Don't override scanning UI mid-scan
+      if (state.isAnalyzing || scanBtn.getAttribute('data-state') === 'scanning') return;
+      scanBtn.setAttribute('data-state', state.yamlContent.trim() ? 'idle' : 'disabled');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      restoreState();
+      renderConfigPanel();
+      renderAutoValidateToggle();
+      applyThemeUI(false);
+
+      checkIndentation();
+      updateLineNumbers();
+      updateValidationStatus();
+      setScanBtnState();
+
+      // realtime clock
+      startRealtimeClock();
+
+      safeCreateIcons();
+
+      // Close mobile controls on resize to desktop
+      window.addEventListener('resize', () => {
+        if (window.innerWidth >= 640) {
+          try { toggleMobileControls(false); } catch (e) {}
+        }
+      });
+
+      setInterval(() => {
+        state.cursorVisible = !state.cursorVisible;
+        const cursor = $('cursor');
+        if (cursor) cursor.style.opacity = state.cursorVisible ? '1' : '0';
+      }, 500);
+
+      window.addEventListener('error', (e) => {
+        console.error(e.error || e.message);
+        addTerminalLine('[RUNTIME ERROR] ' + (e.message || 'Unknown error'));
+      });
+
+      window.addEventListener('unhandledrejection', (e) => {
+        console.error(e.reason);
+        addTerminalLine('[PROMISE ERROR] ' + (e.reason?.message || String(e.reason || 'Unknown rejection')));
+      });
+    });
+
+    function startRealtimeClock() {
+      const timeEl = $('clock-time');
+      const wrap = $('realtime-clock');
+      if (!timeEl || !wrap) return;
+
+      const pad2 = (n) => String(n).padStart(2, '0');
+      const tick = () => {
+        const d = new Date();
+        const hh = pad2(d.getHours());
+        const mm = pad2(d.getMinutes());
+        const ss = pad2(d.getSeconds());
+        timeEl.textContent = `${hh}:${mm}:${ss}`;
+      };
+
+      tick();
+      setInterval(tick, 1000);
+    }
+
+    function showApp() {
+      $('landing-page').classList.add('hidden');
+      $('main-app').classList.remove('hidden');
+      applyThemeUI(false);
+      safeCreateIcons();
+
+      const messages = [
+        '[INIT] K8S Guardian v1.0 initializing...',
+        '[CORE] Loading enhanced security models...',
+        '[AUTO-FIX] Real-time engine ready',
+        '[REALTIME] Live validation active',
+        '[CONFIG] Customizable checks loaded',
+        '[BRAND] Developed by Chandan Kumar',
+        '[STATUS] All systems online',
+      ];
+
+      let index = 0;
+      const interval = setInterval(() => {
+        if (index < messages.length) {
+          addTerminalLine(messages[index]);
+          index++;
+        } else {
+          clearInterval(interval);
+        }
+      }, 200);
+    }
+
+    function hidApp() {
+      // Close mobile controls if open
+      try { toggleMobileControls(false); } catch (e) {}
+
+      $('landing-page').classList.remove('hidden');
+      $('main-app').classList.add('hidden');
+      safeCreateIcons();
+    }
+
+    function toggleMobileControls(force) {
+      const controls = $('header-controls');
+      const overlay = $('mobile-overlay');
+      if (!controls || !overlay) return;
+
+      const openNow = typeof force === 'boolean' ? force : !controls.classList.contains('open');
+
+      if (openNow) {
+        controls.classList.add('open');
+        controls.classList.remove('hidden');
+        overlay.classList.add('open');
+        overlay.classList.remove('hidden');
+        document.body.classList.add('mobile-menu-open');
+      } else {
+        controls.classList.remove('open');
+        controls.classList.add('hidden');
+        overlay.classList.remove('open');
+        overlay.classList.add('hidden');
+        document.body.classList.remove('mobile-menu-open');
+      }
+
+      safeCreateIcons();
+    }
+
+    // Advanced mobile UX: tab switcher (Editor / Results)
+    function setMobileTab(tab) {
+      // only applies on small screens
+      if (window.innerWidth >= 1024) return;
+
+      const editor = $('panel-editor');
+      const results = $('panel-results');
+      const tEditor = $('tab-editor');
+      const tResults = $('tab-results');
+
+      if (!editor || !results || !tEditor || !tResults) return;
+
+      const activeCls = 'bg-gradient-to-r from-cyan-500/20 via-blue-500/15 to-purple-500/20 border-cyan-400/40 text-white shadow-[0_0_25px_rgba(34,211,238,0.10)]';
+      const idleCls = 'bg-slate-950/30 border-slate-700 text-slate-300';
+
+      const setBtn = (btn, active) => {
+        btn.className = btn.className
+          .replace(activeCls, '')
+          .replace(idleCls, '')
+          .trim();
+        // Keep base padding/rounded etc. and just append state styles
+        btn.className = 'px-4 py-3 rounded-xl text-sm font-black transition-all border ' + (active ? activeCls : idleCls);
+      };
+
+      if (tab === 'results') {
+        editor.classList.add('hidden');
+        results.classList.remove('hidden');
+        setBtn(tEditor, false);
+        setBtn(tResults, true);
+        // make sure user sees results top
+        try { results.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {}
+      } else {
+        results.classList.add('hidden');
+        editor.classList.remove('hidden');
+        setBtn(tEditor, true);
+        setBtn(tResults, false);
+        try { editor.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {}
+      }
+
+      safeCreateIcons();
+    }
+
+    // Collapsible config panel on mobile
+    function toggleConfigPanel(force) {
+      const body = $('config-body');
+      const text = $('config-toggle-text');
+      if (!body || !text) return;
+
+      const willShow = typeof force === 'boolean' ? force : body.classList.contains('hidden');
+      if (willShow) {
+        body.classList.remove('hidden');
+        text.textContent = 'Hide';
+      } else {
+        body.classList.add('hidden');
+        text.textContent = 'Show';
+      }
+
+      safeCreateIcons();
+    }
+
+    function addTerminalLine(line) {
+      state.terminalLines.push(line);
+      const terminal = $('terminal-output');
+      if (!terminal) return;
+
+      const div = document.createElement('div');
+      div.className = 'text-green-400 whitespace-pre-wrap break-all';
+      div.textContent = line;
+      terminal.appendChild(div);
+
+      // cap terminal to last 200 lines to avoid memory bloat in production
+      const MAX = 200;
+      while (terminal.children.length > MAX) {
+        terminal.removeChild(terminal.firstChild);
+      }
+
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    function renderConfigPanel() {
+      const categories = {
+        security: { name: 'Security', icon: 'lock', chip: 'bg-red-500/20 text-red-400 border-red-400/30' },
+        resources: { name: 'Resources', icon: 'cpu', chip: 'bg-orange-500/20 text-orange-400 border-orange-400/30' },
+        reliability: { name: 'Reliability', icon: 'target', chip: 'bg-yellow-500/20 text-yellow-300 border-yellow-400/30' },
+        networking: { name: 'Networking', icon: 'network', chip: 'bg-blue-500/20 text-blue-400 border-blue-400/30' },
+        storage: { name: 'Storage', icon: 'database', chip: 'bg-purple-500/20 text-purple-300 border-purple-400/30' },
+        advanced: { name: 'Advanced', icon: 'layers', chip: 'bg-green-500/20 text-green-300 border-green-400/30' },
+      };
+
+      const container = $('config-categories');
+      container.innerHTML = '';
+
+      Object.entries(categories).forEach(([key, meta]) => {
+        const checks = state.enabledChecks[key];
+        const div = document.createElement('div');
+        div.className = 'border-2 border-slate-700 bg-slate-800/80 hover:border-blue-500/50 rounded-lg p-3 transition-all shadow-lg';
+
+        div.innerHTML = `
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <div class="p-1.5 rounded border ${meta.chip}">
+                <i data-lucide="${meta.icon}" class="w-4 h-4"></i>
+              </div>
+              <h4 class="font-bold text-white text-sm">${escapeHtml(meta.name)}</h4>
+            </div>
+            <div class="flex gap-1">
+              <button type="button" onclick="toggleCategory('${key}', true)" class="px-2 py-1 text-xs bg-green-500/20 text-green-400 rounded hover:bg-green-500/30">All</button>
+              <button type="button" onclick="toggleCategory('${key}', false)" class="px-2 py-1 text-xs bg-red-500/20 text-red-400 rounded hover:bg-red-500/30">None</button>
+            </div>
+          </div>
+          <div class="space-y-1 max-h-40 overflow-y-auto scrollbar-thin">
+            ${Object.entries(checks).map(([checkKey, enabled]) => `
+              <label class="flex items-center justify-between cursor-pointer group">
+                <span class="text-xs text-slate-300 group-hover:text-blue-400 transition">${escapeHtml(checkKey.replace(/([A-Z])/g, ' $1').trim())}</span>
+                <button type="button" onclick="toggleCheck('${key}', '${checkKey}')" class="relative w-9 h-5 rounded-full transition ${enabled ? 'bg-green-500' : 'bg-slate-700'}">
+                  <div class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0'}"></div>
+                </button>
+              </label>
+            `).join('')}
+          </div>
+        `;
+
+        container.appendChild(div);
+      });
+
+      safeCreateIcons();
+    }
+
+    function toggleCheck(category, check) {
+      state.enabledChecks[category][check] = !state.enabledChecks[category][check];
+      renderConfigPanel();
+      addTerminalLine('[CONFIG] Toggled ' + check + ' check');
+      persistStateSoon();
+    }
+
+    function toggleCategory(category, enable) {
+      Object.keys(state.enabledChecks[category]).forEach(check => {
+        state.enabledChecks[category][check] = enable;
+      });
+      renderConfigPanel();
+      addTerminalLine('[CONFIG] ' + (enable ? 'Enabled' : 'Disabled') + ' all ' + category + ' checks');
+      persistStateSoon();
+    }
+
+    function toggleAutoValidate() {
+      state.autoValidate = !state.autoValidate;
+      renderAutoValidateToggle();
+      persistStateSoon();
+    }
+
+    function toggleDarkMode() {
+      state.darkMode = !state.darkMode;
+      applyThemeUI(true);
+    }
+
+    function handleYamlChange() {
+      const textarea = $('yaml-editor');
+      state.yamlContent = textarea.value;
+      checkIndentation();
+      updateLineNumbers();
+      syncEditorScroll();
+      setScanBtnState();
+      persistStateSoon();
+
+      if (!state.yamlContent.trim() || !state.autoValidate || state.yamlContent === state.lastValidatedContent) return;
+
+      if (state.validationTimeout) clearTimeout(state.validationTimeout);
+
+      state.validationTimeout = setTimeout(() => {
+        state.isAutoValidating = true;
+        $('validating-indicator').classList.remove('hidden');
+        addTerminalLine('[AUTO-VALIDATE] Content changed, validating...');
+        setTimeout(() => analyzeYAML(true), 100);
+      }, 800);
+    }
+
+    function syncEditorScroll() {
+      const ta = $('yaml-editor');
+      const ln = $('line-numbers');
+      if (!ta || !ln) return;
+      ln.scrollTop = ta.scrollTop;
+    }
+
+    function updateLineNumbers() {
+      const container = $('line-numbers');
+      if (!container) return;
+
+      const lines = state.yamlContent.split('\n');
+      const issueLines = new Set(state.indentationIssues.map(x => x.line));
+
+      container.innerHTML = lines.map((_, i) => {
+        const lineNo = i + 1;
+        const hasIssue = issueLines.has(lineNo);
+        const cls = hasIssue ? 'text-red-400 font-bold' : 'text-slate-600';
+        return '<div class="text-xs font-mono leading-7 ' + cls + '">' + lineNo + '</div>';
+      }).join('');
+
+      syncEditorScroll();
+    }
+
+    function checkIndentation() {
+      state.indentationIssues = [];
+      const lines = state.yamlContent.split('\n');
+
+      lines.forEach((line, index) => {
+        if (!line.trim() || line.trim().startsWith('#')) return;
+        const indent = line.search(/\S|$/);
+
+        if (line.includes('\t')) {
+          state.indentationIssues.push({ line: index + 1, type: 'TAB', message: 'Tab characters detected', severity: 'error' });
+        }
+
+        if (indent % 2 !== 0 && indent > 0) {
+          state.indentationIssues.push({ line: index + 1, type: 'INDENT', message: 'Odd indentation: ' + indent + ' spaces', severity: 'warning' });
+        }
+      });
+
+      const btn = $('indent-fix-btn');
+      const count = $('indent-count');
+      if (state.indentationIssues.length > 0) {
+        btn.classList.remove('hidden');
+        count.textContent = state.indentationIssues.length;
+      } else {
+        btn.classList.add('hidden');
+      }
+
+      updateErrorBadges();
+    }
+
+    function updateValidationStatus() {
+      const dot = $('validation-dot');
+      const text = $('validation-text');
+      if (!dot || !text) return;
+
+      const hasYaml = !!state.yamlContent.trim();
+      const hasSyntax = state.syntaxErrors.some(e => e.severity === 'error');
+      const hasIndent = state.indentationIssues.length > 0;
+
+      dot.classList.remove('bg-green-500', 'bg-yellow-500', 'bg-red-500', 'bg-slate-500');
+      dot.classList.add('animate-pulse');
+
+      if (!hasYaml) {
+        dot.classList.add('bg-slate-500');
+        dot.style.boxShadow = '0 0 18px rgba(148,163,184,0.25)';
+        text.textContent = 'PASTE YAML';
+        text.className = 'text-sm text-slate-300 font-bold tracking-wider';
+        return;
+      }
+
+      if (hasSyntax) {
+        dot.classList.add('bg-red-500');
+        dot.style.boxShadow = '0 0 18px rgba(239,68,68,0.45)';
+        text.textContent = 'SYNTAX ERROR';
+        text.className = 'text-sm text-red-300 font-bold tracking-wider';
+        return;
+      }
+
+      if (hasIndent) {
+        dot.classList.add('bg-yellow-500');
+        dot.style.boxShadow = '0 0 18px rgba(234,179,8,0.45)';
+        text.textContent = 'INDENT WARNING';
+        text.className = 'text-sm text-yellow-200 font-bold tracking-wider';
+        return;
+      }
+
+      dot.classList.add('bg-green-500');
+      dot.style.boxShadow = '0 0 18px rgba(34,197,94,0.45)';
+      text.textContent = 'NEURAL READY';
+      text.className = 'text-sm text-green-400 font-bold tracking-wider';
+    }
+
+    function updateErrorBadges() {
+      const container = $('error-badges');
+      container.innerHTML = '';
+
+      if (state.syntaxErrors.length > 0) {
+        container.innerHTML += '<div class="bg-red-500 text-white px-4 py-2 rounded-lg text-xs font-black animate-pulse">' + state.syntaxErrors.length + ' SYNTAX</div>';
+      }
+      if (state.indentationIssues.length > 0) {
+        container.innerHTML += '<div class="bg-yellow-500 text-white px-4 py-2 rounded-lg text-xs font-black animate-pulse">' + state.indentationIssues.length + ' INDENT</div>';
+      }
+
+      // Keep the editor status pill accurate in realtime
+      updateValidationStatus();
+    }
+
+    // Normalize indentation safely (production)
+    // - Always converts tabs to spaces
+    // - Fixes odd indentation only if it does NOT break YAML parsing (when js-yaml is available)
+    function normalizeIndentation(content) {
+      const original = String(content || '');
+      const tabsFixed = original.replace(/\t/g, '  ');
+
+      const fixOddIndent = (src) => {
+        const lines = src.split('\n');
+        const fixedLines = lines.map((line) => {
+          if (!line || !line.trim() || line.trim().startsWith('#')) return line;
+          const indent = line.search(/\S|$/);
+          if (indent > 0 && indent % 2 !== 0) {
+            const newIndent = indent - 1; // nearest even (reduce only)
+            return ' '.repeat(newIndent) + line.slice(indent);
+          }
+          return line;
+        });
+        return fixedLines.join('\n');
+      };
+
+      // If js-yaml is available, ensure we don't break parsing
+      const canParse = (y) => {
+        try {
+          if (window.jsyaml && typeof window.jsyaml.loadAll === 'function') {
+            window.jsyaml.loadAll(y, () => {});
+          }
+          return true;
+        } catch (e) {
+          return false;
+        }
+      };
+
+      // If we don't have js-yaml, do the best-effort fix.
+      if (!(window.jsyaml && typeof window.jsyaml.loadAll === 'function')) {
+        return fixOddIndent(tabsFixed);
+      }
+
+      // If tabsFixed already doesn't parse, try to also fix odd-indent to help parsing.
+      const oddFixed = fixOddIndent(tabsFixed);
+      const tabsOk = canParse(tabsFixed);
+      const oddOk = canParse(oddFixed);
+
+      // Prefer the version that parses; if both parse, prefer the more-normalized one.
+      if (oddOk) return oddFixed;
+      if (tabsOk) return tabsFixed;
+
+      // If neither parses, return tabsFixed (least invasive change)
+      return tabsFixed;
+    }
+
+    function autoCorrectIndent() {
+      const out = normalizeIndentation(state.yamlContent);
+
+      $('yaml-editor').value = out;
+      state.yamlContent = out;
+
+      // Re-run indentation + syntax validation so badges/status update instantly
+      checkIndentation();
+      state.syntaxErrors = validateYAMLSyntax(state.yamlContent);
+      updateLineNumbers();
+      syncEditorScroll();
+      updateErrorBadges();
+      updateValidationStatus();
+      setScanBtnState();
+      persistStateSoon();
+      addTerminalLine('[INDENT] Auto-corrected indentation');
+    }
+
+    function loadSample() {
+      $('yaml-editor').value = sampleYAML;
+      state.yamlContent = sampleYAML;
+      state.result = null;
+      state.syntaxErrors = [];
+      checkIndentation();
+      updateLineNumbers();
+      updateValidationStatus();
+      setScanBtnState();
+      $('score-dashboard').classList.add('hidden');
+      $('results-placeholder').classList.remove('hidden');
+      $('results-container').classList.add('hidden');
+      showExportButtons(false);
+      persistStateSoon();
+      addTerminalLine('[LOAD] Sample YAML loaded successfully');
+    }
+
+    function clearEditor() {
+      $('yaml-editor').value = '';
+      state.yamlContent = '';
+      state.result = null;
+      state.syntaxErrors = [];
+      state.indentationIssues = [];
+      updateLineNumbers();
+      updateErrorBadges();
+      updateValidationStatus();
+      setScanBtnState();
+      $('score-dashboard').classList.add('hidden');
+      $('results-placeholder').classList.remove('hidden');
+      $('results-container').classList.add('hidden');
+      showExportButtons(false);
+      persistStateSoon();
+      addTerminalLine('[CLEAR] Editor cleared');
+    }
+
+    function validateYAMLSyntax(content) {
+      const errors = [];
+      const lines = content.split('\n');
+
+      // Fast checks (tabs/odd indentation)
+      lines.forEach((line, index) => {
+        const lineNum = index + 1;
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        const indent = line.search(/\S|$/);
+        if (line.includes('\t')) {
+          errors.push({ line: lineNum, type: 'SYNTAX', severity: 'error', message: 'TABS NOT ALLOWED' });
+        }
+        if (indent % 2 !== 0 && indent > 0) {
+          errors.push({ line: lineNum, type: 'INDENTATION', severity: 'error', message: 'Bad indent: ' + indent });
+        }
+      });
+
+      // Deep YAML parsing validation (production)
+      if (window.jsyaml && typeof window.jsyaml.loadAll === 'function') {
+        try {
+          window.jsyaml.loadAll(content, () => {});
+        } catch (e) {
+          const mark = e && e.mark ? e.mark : null;
+          const line = mark && typeof mark.line === 'number' ? (mark.line + 1) : 1;
+          errors.push({
+            line,
+            type: 'YAML',
+            severity: 'error',
+            message: (e && e.message ? String(e.message) : 'Invalid YAML')
+          });
+        }
+      }
+
+      // Deduplicate (same line/type)
+      const seen = new Set();
+      return errors.filter(er => {
+        const k = `${er.line}|${er.type}|${er.message}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+    }
+
+    function parseYAML(content) {
+      try {
+        // Production-grade parsing when js-yaml is available
+        if (window.jsyaml && typeof window.jsyaml.loadAll === 'function') {
+          const docs = [];
+          window.jsyaml.loadAll(content, (doc) => {
+            if (doc !== undefined && doc !== null) docs.push(doc);
+          });
+
+          return docs.map((obj) => {
+            const manifest = { apiVersion: '', kind: '', metadata: { name: '', namespace: '' } };
+            if (obj && typeof obj === 'object') {
+              manifest.apiVersion = obj.apiVersion ? String(obj.apiVersion) : '';
+              manifest.kind = obj.kind ? String(obj.kind) : '';
+              if (obj.metadata && typeof obj.metadata === 'object') {
+                manifest.metadata.name = obj.metadata.name ? String(obj.metadata.name) : '';
+                manifest.metadata.namespace = obj.metadata.namespace ? String(obj.metadata.namespace) : '';
+              }
+            }
+            return manifest;
+          });
+        }
+
+        // Fallback: lightweight parser (kept for resilience)
+        const documents = content.split(/^---$/m).filter(d => d.trim());
+        return documents.map(doc => {
+          const manifest = { apiVersion: '', kind: '', metadata: { name: '', namespace: '' }};
+          const lines = doc.split('\n');
+          lines.forEach(line => {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) return;
+            if (trimmed.startsWith('apiVersion:')) manifest.apiVersion = (trimmed.split('apiVersion:')[1] || '').trim();
+            else if (trimmed.startsWith('kind:')) manifest.kind = (trimmed.split('kind:')[1] || '').trim();
+            else if (trimmed.startsWith('name:') && !manifest.metadata.name) manifest.metadata.name = (trimmed.split('name:')[1] || '').trim();
+            else if (trimmed.startsWith('namespace:') && !manifest.metadata.namespace) manifest.metadata.namespace = (trimmed.split('namespace:')[1] || '').trim();
+          });
+          return manifest;
+        });
+      } catch (e) {
+        return [{ error: e.message }];
+      }
+    }
+
+    function calculateScore(issues, syntaxErrorCount) {
+      let score = 100;
+      score -= issues.critical.length * 20;
+      score -= issues.high.length * 10;
+      score -= issues.medium.length * 5;
+      score -= issues.low.length * 2;
+      score -= syntaxErrorCount * 15;
+      score += Math.min(issues.passed.length * 1, 20);
+      return Math.max(0, Math.min(100, Math.round(score)));
+    }
+
+    function validateManifests(manifests, content) {
+      const issues = { critical: [], high: [], medium: [], low: [], passed: [] };
+      const checks = state.enabledChecks;
+
+      manifests.forEach((m) => {
+        if (!m.apiVersion) {
+          issues.critical.push({ category: 'Structure', title: 'Missing apiVersion', message: 'Required field', fix: 'apiVersion: apps/v1', autoFixable: false, impact: 'Rejected' });
+        } else issues.passed.push({ category: 'Structure', title: '✓ apiVersion' });
+
+        if (!m.kind) {
+          issues.critical.push({ category: 'Structure', title: 'Missing kind', message: 'Required field', fix: 'kind: Deployment', autoFixable: false, impact: 'Undefined' });
+        } else issues.passed.push({ category: 'Structure', title: '✓ kind' });
+
+        if (!m.metadata.name) {
+          issues.critical.push({ category: 'Structure', title: 'Missing name', message: 'Required', fix: 'metadata.name: my-app', autoFixable: false, impact: 'Cannot create' });
+        } else issues.passed.push({ category: 'Structure', title: '✓ name' });
+      });
+
+      if (checks.security.imageVersion && content.match(/image:.*:latest/)) {
+        issues.medium.push({ category: 'Security', title: 'Using :latest', message: 'Unpinned version', fix: 'Replace with :1.21.0', autoFixable: true, fixType: 'replace', fixData: { find: ':latest', replace: ':1.21.0' }, impact: 'Unpredictable' });
+      } else if (content.includes('image:')) {
+        issues.passed.push({ category: 'Security', title: '✓ Versioned image' });
+      }
+
+      if (checks.security.privilegedContainer && content.includes('privileged: true')) {
+        issues.critical.push({ category: 'Security', title: 'Privileged Container', message: 'Full host access', fix: 'Change to privileged: false', autoFixable: true, fixType: 'replace', fixData: { find: 'privileged: true', replace: 'privileged: false' }, impact: 'Container escape' });
+      }
+
+      if (checks.security.runAsNonRoot && !content.includes('runAsNonRoot:')) {
+        issues.high.push({ category: 'Security', title: 'Root User', message: 'May run as root', fix: 'Add runAsNonRoot: true', autoFixable: true, fixType: 'add-security-field', fixData: { field: 'runAsNonRoot', value: 'true' }, impact: 'Privilege escalation' });
+      } else if (content.includes('runAsNonRoot:')) {
+        issues.passed.push({ category: 'Security', title: '✓ Non-root user' });
+      }
+
+      if (checks.security.allowPrivilegeEscalation && !content.includes('allowPrivilegeEscalation:')) {
+        issues.high.push({ category: 'Security', title: 'Privilege Escalation', message: 'Can gain privileges', fix: 'Add allowPrivilegeEscalation: false', autoFixable: true, fixType: 'add-security-field', fixData: { field: 'allowPrivilegeEscalation', value: 'false' }, impact: 'Security risk' });
+      } else if (content.includes('allowPrivilegeEscalation:')) {
+        issues.passed.push({ category: 'Security', title: '✓ No privilege escalation' });
+      }
+
+      if (checks.security.readOnlyRootFilesystem && !content.includes('readOnlyRootFilesystem:')) {
+        issues.medium.push({ category: 'Security', title: 'Writable Filesystem', message: 'Root filesystem writable', fix: 'Add readOnlyRootFilesystem: true', autoFixable: true, fixType: 'add-security-field', fixData: { field: 'readOnlyRootFilesystem', value: 'true' }, impact: 'Malware persistence' });
+      } else if (content.includes('readOnlyRootFilesystem:')) {
+        issues.passed.push({ category: 'Security', title: '✓ Read-only filesystem' });
+      }
+
+      if (checks.security.capabilities && !content.includes('capabilities:')) {
+        issues.high.push({ category: 'Security', title: 'Capabilities Not Dropped', message: 'Default capabilities active', fix: 'Drop all capabilities', autoFixable: true, fixType: 'add-capabilities', fixData: {}, impact: 'Capability abuse' });
+      } else if (content.includes('capabilities:')) {
+        issues.passed.push({ category: 'Security', title: '✓ Capabilities managed' });
+      }
+
+      if (checks.security.seccompProfile && !content.includes('seccompProfile:')) {
+        issues.medium.push({ category: 'Security', title: 'No Seccomp Profile', message: 'Unrestricted syscalls', fix: 'Add seccomp profile', autoFixable: true, fixType: 'add-seccomp', fixData: {}, impact: 'Syscall abuse' });
+      } else if (content.includes('seccompProfile:')) {
+        issues.passed.push({ category: 'Security', title: '✓ Seccomp enabled' });
+      }
+
+      if (checks.security.hostNetwork && content.includes('hostNetwork: true')) {
+        issues.critical.push({ category: 'Security', title: 'Host Network Access', message: 'Direct host network access', fix: 'Remove hostNetwork or set to false', autoFixable: false, impact: 'Network exposure' });
+      } else {
+        issues.passed.push({ category: 'Security', title: '✓ No host network' });
+      }
+
+      if (checks.security.hostPID && content.includes('hostPID: true')) {
+        issues.critical.push({ category: 'Security', title: 'Host PID Namespace', message: 'Access to host processes', fix: 'Remove hostPID or set to false', autoFixable: false, impact: 'Process visibility' });
+      }
+
+      if (checks.security.hostIPC && content.includes('hostIPC: true')) {
+        issues.high.push({ category: 'Security', title: 'Host IPC Namespace', message: 'Shared memory access', fix: 'Remove hostIPC or set to false', autoFixable: false, impact: 'IPC exposure' });
+      }
+
+      if (checks.security.imagePullPolicy && !content.includes('imagePullPolicy:')) {
+        issues.low.push({ category: 'Security', title: 'No Image Pull Policy', message: 'May use cached images', fix: 'Add imagePullPolicy: Always', autoFixable: false, impact: 'Stale images' });
+      } else if (content.includes('imagePullPolicy:')) {
+        issues.passed.push({ category: 'Security', title: '✓ Image pull policy set' });
+      }
+
+      if (checks.resources.limits && !content.includes('limits:')) {
+        issues.high.push({ category: 'Resources', title: 'No Resource Limits', message: 'Unlimited resources', fix: 'Add resource limits', autoFixable: true, fixType: 'add-resources', fixData: { type: 'limits' }, impact: 'Resource exhaustion' });
+      } else if (content.includes('limits:')) {
+        issues.passed.push({ category: 'Resources', title: '✓ Resource limits' });
+      }
+
+      if (checks.resources.requests && !content.includes('requests:')) {
+        issues.medium.push({ category: 'Resources', title: 'No Resource Requests', message: 'No scheduling hints', fix: 'Add resource requests', autoFixable: true, fixType: 'add-resources', fixData: { type: 'requests' }, impact: 'Poor scheduling' });
+      } else if (content.includes('requests:')) {
+        issues.passed.push({ category: 'Resources', title: '✓ Resource requests' });
+      }
+
+      if (checks.reliability.livenessProbe && !content.includes('livenessProbe:')) {
+        issues.medium.push({ category: 'Reliability', title: 'No Liveness Probe', message: 'No health detection', fix: 'Add liveness probe', autoFixable: true, fixType: 'add-probe', fixData: { type: 'liveness' }, impact: 'Unhealthy pods' });
+      } else if (content.includes('livenessProbe:')) {
+        issues.passed.push({ category: 'Reliability', title: '✓ Liveness probe' });
+      }
+
+      if (checks.reliability.readinessProbe && !content.includes('readinessProbe:')) {
+        issues.medium.push({ category: 'Reliability', title: 'No Readiness Probe', message: 'Traffic routing issues', fix: 'Add readiness probe', autoFixable: true, fixType: 'add-probe', fixData: { type: 'readiness' }, impact: 'Failed requests' });
+      } else if (content.includes('readinessProbe:')) {
+        issues.passed.push({ category: 'Reliability', title: '✓ Readiness probe' });
+      }
+
+      if (checks.reliability.startupProbe && !content.includes('startupProbe:')) {
+        issues.low.push({ category: 'Reliability', title: 'No Startup Probe', message: 'Slow start detection', fix: 'Add startup probe for slow-starting apps', autoFixable: false, impact: 'Startup delays' });
+      } else if (content.includes('startupProbe:')) {
+        issues.passed.push({ category: 'Reliability', title: '✓ Startup probe' });
+      }
+
+      if (checks.reliability.replicaCount) {
+        const replicaMatch = content.match(/replicas:\s*(\d+)/);
+        if (replicaMatch) {
+          const replicas = parseInt(replicaMatch[1]);
+          if (replicas < 2) {
+            issues.medium.push({ category: 'Reliability', title: 'Single Replica', message: 'No redundancy', fix: 'Set replicas: 3 or higher', autoFixable: false, impact: 'Downtime risk' });
+          } else {
+            issues.passed.push({ category: 'Reliability', title: '✓ Multiple replicas' });
+          }
+        }
+      }
+
+      if (checks.networking.networkPolicy && !content.includes('kind: NetworkPolicy')) {
+        issues.medium.push({ category: 'Networking', title: 'No Network Policy', message: 'Unrestricted traffic', fix: 'Create NetworkPolicy resource', autoFixable: false, impact: 'Network exposure' });
+      }
+
+      if (checks.networking.serviceType && content.includes('type: LoadBalancer')) {
+        issues.low.push({ category: 'Networking', title: 'LoadBalancer Service', message: 'Public exposure', fix: 'Consider ClusterIP with Ingress', autoFixable: false, impact: 'Cost & exposure' });
+      }
+
+      if (checks.security.serviceAccount && !content.includes('serviceAccountName:')) {
+        issues.low.push({ category: 'Security', title: 'Default Service Account', message: 'Using default SA', fix: 'Add custom service account', autoFixable: true, fixType: 'add-service-account', fixData: {}, impact: 'Excessive permissions' });
+      } else if (content.includes('serviceAccountName:')) {
+        issues.passed.push({ category: 'Security', title: '✓ Custom SA' });
+      }
+
+      if (checks.security.automountToken && !content.includes('automountServiceAccountToken: false')) {
+        issues.low.push({ category: 'Security', title: 'Token Mounted', message: 'Token exposed', fix: 'Disable token automount', autoFixable: true, fixType: 'add-automount-token', fixData: {}, impact: 'Token theft' });
+      } else if (content.includes('automountServiceAccountToken: false')) {
+        issues.passed.push({ category: 'Security', title: '✓ Token disabled' });
+      }
+
+      if (checks.advanced.horizontalPodAutoscaler && !content.includes('kind: HorizontalPodAutoscaler')) {
+        issues.low.push({ category: 'Advanced', title: 'No HPA', message: 'No auto-scaling', fix: 'Consider adding HorizontalPodAutoscaler', autoFixable: false, impact: 'Manual scaling' });
+      }
+
+      if (checks.reliability.podAntiAffinity && !content.includes('podAntiAffinity:')) {
+        issues.low.push({ category: 'Reliability', title: 'No Pod Anti-Affinity', message: 'Pods may colocate', fix: 'Add podAntiAffinity rules', autoFixable: false, impact: 'Zone failure risk' });
+      }
+
+      if (content.includes('labels:')) issues.passed.push({ category: 'Organization', title: '✓ Labels' });
+      if (content.includes('namespace:') && !content.includes('namespace: default')) issues.passed.push({ category: 'Organization', title: '✓ Namespace' });
+
+      return issues;
+    }
+
+    async function analyzeYAML(isAutoValidation) {
+      if (state.isAnalyzing) return;
+
+      if (!state.yamlContent.trim()) {
+        addTerminalLine('[WARN] No YAML content to scan');
+        if (!isAutoValidation) alert('Please paste YAML content first');
+        return;
+      }
+
+      state.isAnalyzing = true;
+      state.scanProgress = 0;
+
+      const scanBtn = $('scan-btn');
+      scanBtn.setAttribute('data-state', 'scanning');
+
+      if (!isAutoValidation) {
+        addTerminalLine('');
+        addTerminalLine('[SCAN] Initiating comprehensive security scan...');
+        $('scan-progress-container').classList.remove('hidden');
+      }
+
+      const progressInt = setInterval(() => {
+        state.scanProgress = Math.min(state.scanProgress + 5, 95);
+        $('scan-percent').textContent = String(state.scanProgress);
+        $('scan-bar').style.width = state.scanProgress + '%';
+      }, 100);
+
+      await new Promise(r => setTimeout(r, isAutoValidation ? 500 : 1500));
+
+      try {
+        state.syntaxErrors = validateYAMLSyntax(state.yamlContent);
+        updateErrorBadges();
+
+        const manifests = parseYAML(state.yamlContent);
+        if (manifests[0] && manifests[0].error) {
+          state.result = { status: 'error', error: manifests[0].error };
+          addTerminalLine('[ERROR] ' + manifests[0].error);
+          clearInterval(progressInt);
+          state.isAnalyzing = false;
+          state.isAutoValidating = false;
+          $('validating-indicator').classList.add('hidden');
+          scanBtn.setAttribute('data-state', state.yamlContent.trim() ? 'idle' : 'disabled');
+          renderResults();
+          return;
+        }
+
+        const issues = validateManifests(manifests, state.yamlContent);
+        const totalIssues = issues.critical.length + issues.high.length + issues.medium.length + issues.low.length;
+        const syntaxErrorCount = state.syntaxErrors.filter(e => e.severity === 'error').length;
+        const score = calculateScore(issues, syntaxErrorCount);
+
+        state.liveScore = score;
+        const autoFixable = [issues.critical, issues.high, issues.medium, issues.low].flat().filter(i => i.autoFixable).length;
+
+        state.result = { status: 'success', manifests: manifests.length, issues, score, totalIssues, autoFixable, syntaxErrorCount };
+        state.lastValidatedContent = state.yamlContent;
+
+        clearInterval(progressInt);
+        state.scanProgress = 100;
+        $('scan-percent').textContent = '100';
+        $('scan-bar').style.width = '100%';
+
+        const grade = score >= 90 ? 'A+' : score >= 80 ? 'A' : score >= 70 ? 'B' : score >= 60 ? 'C' : score >= 50 ? 'D' : 'F';
+
+        if (!isAutoValidation) {
+          addTerminalLine('[SCAN] Analysis complete');
+          addTerminalLine('[SCORE] Security Score: ' + score + '/100 (' + grade + ')');
+          addTerminalLine('[ISSUES] Critical: ' + issues.critical.length + ' | High: ' + issues.high.length + ' | Medium: ' + issues.medium.length + ' | Low: ' + issues.low.length);
+          addTerminalLine('[PASSED] ' + issues.passed.length + ' checks passed');
+          addTerminalLine('[FIX] ' + autoFixable + ' issues can be auto-fixed');
+        } else {
+          addTerminalLine('[AUTO-VALIDATE] Score: ' + score + '/100 (' + grade + ')');
+        }
+
+        updateDashboard();
+        renderResults();
+
+      } catch (error) {
+        state.result = { status: 'error', error: error.message };
+        addTerminalLine('[ERROR] ' + error.message);
+        renderResults();
+        clearInterval(progressInt);
+      }
+
+      state.isAnalyzing = false;
+      state.isAutoValidating = false;
+      $('validating-indicator').classList.add('hidden');
+      $('scan-progress-container').classList.add('hidden');
+      scanBtn.setAttribute('data-state', state.yamlContent.trim() ? 'idle' : 'disabled');
+    }
+
+    function updateDashboard() {
+      if (!state.result || state.result.status !== 'success') return;
+
+      const dashboard = $('score-dashboard');
+      dashboard.classList.remove('hidden');
+      showExportButtons(true);
+
+      const score = state.result.score;
+      $('score-value').textContent = String(score);
+      $('critical-count').textContent = String(state.result.issues.critical.length);
+      $('high-count').textContent = String(state.result.issues.high.length);
+      $('medium-count').textContent = String(state.result.issues.medium.length);
+      $('low-count').textContent = String(state.result.issues.low.length);
+
+      const grade = score >= 90 ? 'A+' : score >= 80 ? 'A' : score >= 70 ? 'B' : score >= 60 ? 'C' : score >= 50 ? 'D' : 'F';
+      const gradeEl = $('score-grade');
+      gradeEl.textContent = grade;
+      gradeEl.className = 'inline-block px-4 py-2 rounded-lg font-black text-lg mt-2 ' + (
+        score >= 90 ? 'bg-green-500/40 text-green-200' :
+        score >= 70 ? 'bg-blue-500/40 text-blue-200' :
+        score >= 50 ? 'bg-yellow-500/40 text-yellow-200' :
+        'bg-red-500/40 text-red-200'
+      );
+
+      const autofixBtn = $('autofix-btn');
+      const autofixCount = $('autofix-count');
+      if (state.result.autoFixable > 0) {
+        autofixBtn.classList.remove('hidden');
+        autofixBtn.classList.add('flex');
+        autofixCount.textContent = String(state.result.autoFixable);
+      } else {
+        autofixBtn.classList.add('hidden');
+      }
+
+      safeCreateIcons();
+    }
+
+    function showExportButtons(show) {
+      const jsonBtn = $('export-btn');
+      const pdfBtn = $('export-pdf-btn');
+      if (jsonBtn) {
+        if (show) {
+          jsonBtn.classList.remove('hidden');
+          jsonBtn.classList.add('flex');
+        } else {
+          jsonBtn.classList.add('hidden');
+          jsonBtn.classList.remove('flex');
+        }
+      }
+      if (pdfBtn) {
+        if (show) {
+          pdfBtn.classList.remove('hidden');
+          pdfBtn.classList.add('flex');
+        } else {
+          pdfBtn.classList.add('hidden');
+          pdfBtn.classList.remove('flex');
+        }
+      }
+    }
+
+    function renderResults() {
+      $('results-placeholder').classList.add('hidden');
+      const container = $('results-container');
+      container.classList.remove('hidden');
+      container.innerHTML = '';
+
+      if (!state.result) {
+        showExportButtons(false);
+        $('results-placeholder').classList.remove('hidden');
+        container.classList.add('hidden');
+        return;
+      }
+
+      if (state.result.status === 'error') {
+        showExportButtons(false);
+        container.innerHTML = '<div class="bg-slate-900/50 backdrop-blur border border-slate-800 rounded-xl p-10"><div class="flex items-start gap-6"><div class="p-5 rounded-2xl bg-red-500/40 animate-pulse"><i data-lucide="x-octagon" class="w-12 h-12 text-red-300"></i></div><div><h3 class="text-3xl font-black text-red-300 mb-4">ERROR</h3><p class="text-lg text-red-200">' + escapeHtml(state.result.error) + '</p></div></div></div>';
+        safeCreateIcons();
+        return;
+      }
+
+      const sectionStyles = {
+        critical: {
+          label: 'CRITICAL',
+          icon: 'skull',
+          wrap: 'border-red-500/40 bg-gradient-to-r from-red-500/25 via-slate-900/20 to-transparent shadow-[0_0_35px_rgba(239,68,68,0.18)]',
+          pill: 'bg-red-500/30 border-red-400/70 text-red-100',
+          iconWrap: 'bg-red-500/15 border-red-400/50',
+          iconText: 'text-red-200'
+        },
+        high: {
+          label: 'HIGH',
+          icon: 'alert-triangle',
+          wrap: 'border-orange-500/40 bg-gradient-to-r from-orange-500/25 via-slate-900/20 to-transparent shadow-[0_0_35px_rgba(249,115,22,0.18)]',
+          pill: 'bg-orange-500/30 border-orange-400/70 text-orange-100',
+          iconWrap: 'bg-orange-500/15 border-orange-400/50',
+          iconText: 'text-orange-200'
+        },
+        medium: {
+          label: 'MEDIUM',
+          icon: 'alert-circle',
+          wrap: 'border-yellow-500/40 bg-gradient-to-r from-yellow-500/20 via-slate-900/20 to-transparent shadow-[0_0_35px_rgba(234,179,8,0.16)]',
+          pill: 'bg-yellow-500/25 border-yellow-400/70 text-yellow-100',
+          iconWrap: 'bg-yellow-500/15 border-yellow-400/50',
+          iconText: 'text-yellow-200'
+        },
+        low: {
+          label: 'LOW',
+          icon: 'info',
+          wrap: 'border-blue-500/40 bg-gradient-to-r from-blue-500/20 via-slate-900/20 to-transparent shadow-[0_0_35px_rgba(59,130,246,0.16)]',
+          pill: 'bg-blue-500/25 border-blue-400/70 text-blue-100',
+          iconWrap: 'bg-blue-500/15 border-blue-400/50',
+          iconText: 'text-blue-200'
+        },
+        passed: {
+          label: 'PASSED',
+          icon: 'check-circle',
+          wrap: 'border-green-500/35 bg-gradient-to-r from-green-500/15 via-slate-900/20 to-transparent shadow-[0_0_30px_rgba(34,197,94,0.14)]',
+          pill: 'bg-green-500/20 border-green-400/60 text-green-100',
+          iconWrap: 'bg-green-500/12 border-green-400/40',
+          iconText: 'text-green-200'
+        }
+      };
+
+      const order = ['critical', 'high', 'medium', 'low', 'passed'];
+
+      order.forEach((key) => {
+        const issues = state.result.issues[key];
+        if (!issues || issues.length === 0) return;
+
+        const s = sectionStyles[key] || sectionStyles.passed;
+
+        const header = `
+          <h3 class="relative overflow-hidden rounded-2xl border ${s.wrap} p-5">
+            <div class="absolute inset-0 opacity-40" style="background: radial-gradient(1200px circle at 10% 20%, rgba(255,255,255,0.08), transparent 55%);"></div>
+            <div class="relative flex items-center gap-4">
+              <div class="p-3 rounded-2xl border ${s.iconWrap} shadow-[0_0_20px_rgba(0,0,0,0.35)]">
+                <i data-lucide="${s.icon}" class="w-7 h-7 ${s.iconText} ${key === 'critical' ? 'animate-pulse' : ''}"></i>
+              </div>
+              <div class="flex items-center gap-3 flex-wrap">
+                <span class="px-3 py-1.5 rounded-xl border ${s.pill} font-black tracking-[0.35em] text-sm">${s.label}</span>
+                <span class="px-3 py-1.5 rounded-xl bg-slate-950/50 border border-slate-700 text-slate-200 text-sm font-black">${issues.length}</span>
+              </div>
+            </div>
+          </h3>
+        `;
+
+        const listClass = key === 'passed' ? 'grid gap-4' : 'space-y-5';
+
+        const section = document.createElement('div');
+        section.innerHTML = header + `<div class="${listClass}">${issues.map((issue, i) => renderIssue(issue, i)).join('')}</div>`;
+        container.appendChild(section);
+      });
+
+      safeCreateIcons();
+    }
+
+    function renderIssue(issue) {
+      const styles = {
+        'Security': { chip: 'bg-red-500/20 text-red-400', icon: 'lock' },
+        'Resources': { chip: 'bg-orange-500/20 text-orange-400', icon: 'cpu' },
+        'Reliability': { chip: 'bg-yellow-500/20 text-yellow-400', icon: 'target' },
+        'Networking': { chip: 'bg-blue-500/20 text-blue-400', icon: 'network' },
+        'Storage': { chip: 'bg-purple-500/20 text-purple-400', icon: 'database' },
+        'Structure': { chip: 'bg-slate-500/20 text-slate-300', icon: 'box' },
+        'Advanced': { chip: 'bg-green-500/20 text-green-400', icon: 'layers' },
+        'Organization': { chip: 'bg-emerald-500/20 text-emerald-300', icon: 'sparkles' }
+      };
+
+      const s = styles[issue.category] || styles.Structure;
+
+      return '<div class="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-lg p-4 hover:border-blue-500/50 transition-all hover:scale-[1.02] transform duration-200">'
+        + '<div class="flex items-start gap-3">'
+        + '<div class="p-2 rounded-lg ' + s.chip + '"><i data-lucide="' + s.icon + '" class="w-5 h-5"></i></div>'
+        + '<div class="flex-1">'
+        + '<h3 class="font-bold text-white mb-1">' + escapeHtml(issue.title) + '</h3>'
+        + '<div class="flex gap-2 mb-2 flex-wrap">'
+        + '<span class="px-2 py-0.5 text-xs rounded bg-slate-700 text-slate-300">' + escapeHtml(issue.category) + '</span>'
+        + (issue.autoFixable ? '<span class="px-2 py-0.5 text-xs rounded bg-green-500/20 text-green-400 flex items-center gap-1 animate-pulse"><i data-lucide="check" class="w-3 h-3"></i> AUTO-FIX</span>' : '')
+        + (issue.impact ? '<span class="px-2 py-0.5 text-xs rounded bg-red-500/20 text-red-300">' + escapeHtml(issue.impact) + '</span>' : '')
+        + '</div>'
+        + '<p class="text-sm text-slate-400 mb-2">' + escapeHtml(issue.message) + '</p>'
+        + (issue.fix ? '<div class="bg-slate-900/50 border border-slate-700 rounded p-2 text-xs text-blue-300 font-mono"><span class="text-green-400">→</span> ' + escapeHtml(issue.fix) + '</div>' : '')
+        + '</div></div></div>';
+    }
+
+    async function applyAutoFix() {
+      if (!state.result || !state.result.issues) return;
+
+      state.isAutoFixing = true;
+      state.autoFixProgress = 0;
+
+      const progressWrap = $('autofix-progress');
+      const btn = $('autofix-btn');
+      const live = $('live-indicator');
+      progressWrap.classList.remove('hidden');
+      btn.classList.add('hidden');
+      live.classList.remove('hidden');
+
+      addTerminalLine('');
+      addTerminalLine('[AUTO-FIX] Starting comprehensive auto-fix...');
+
+      let fixed = state.yamlContent;
+      let fixCount = 0;
+
+      let allIssues = [
+        ...state.result.issues.critical,
+        ...state.result.issues.high,
+        ...state.result.issues.medium,
+        ...state.result.issues.low
+      ].filter(i => i.autoFixable);
+
+      // Refresh indentation + syntax state before auto-fix (so indentation issues are also fixed)
+      checkIndentation();
+      state.syntaxErrors = validateYAMLSyntax(state.yamlContent);
+      updateErrorBadges();
+
+      const updateLiveStats = (currentFixed) => {
+        try {
+          const tempManifests = parseYAML(currentFixed);
+          const tempIssues = validateManifests(tempManifests, currentFixed);
+          const tempSyntax = validateYAMLSyntax(currentFixed);
+          const tempSyntaxCount = tempSyntax.filter(e => e.severity === 'error').length;
+          const tempScore = calculateScore(tempIssues, tempSyntaxCount);
+
+          state.liveScore = tempScore;
+          state.result = {
+            ...state.result,
+            score: tempScore,
+            issues: tempIssues,
+            totalIssues: tempIssues.critical.length + tempIssues.high.length + tempIssues.medium.length + tempIssues.low.length,
+            syntaxErrorCount: tempSyntaxCount
+          };
+          updateDashboard();
+          renderResults();
+        } catch (e) {
+          // ignore
+        }
+      };
+
+      // Escape a string for safe use inside RegExp (standard + reliable)
+      // Standard: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions#escaping
+      const escRE = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      // Also fix indentation issues (tabs / odd indentation) as part of Auto-Fix
+      // This helps YAML become parsable and prevents scan failures due to indentation.
+      const needsIndentFix = (state.indentationIssues && state.indentationIssues.length > 0) ||
+        (state.syntaxErrors && state.syntaxErrors.some(e => e.type === 'SYNTAX' || e.type === 'INDENTATION' || e.type === 'YAML'));
+
+      if (needsIndentFix) {
+        allIssues.unshift({
+          category: 'Structure',
+          title: 'Fix indentation (tabs / odd spaces)',
+          message: 'Normalize indentation to 2-space alignment and remove tabs.',
+          fix: 'Convert tabs to spaces and fix odd indentation',
+          autoFixable: true,
+          fixType: 'fix-indentation',
+          fixData: {}
+        });
+      }
+
+      const totalFixes = allIssues.length;
+      addTerminalLine('[AUTO-FIX] Found ' + totalFixes + ' fixable issues');
+
+      for (let i = 0; i < allIssues.length; i++) {
+        const issue = allIssues[i];
+        const before = fixed;
+
+        const progress = totalFixes ? Math.round(((i + 1) / totalFixes) * 100) : 100;
+        state.autoFixProgress = progress;
+        $('fix-percent').textContent = String(progress);
+        $('fix-bar').style.width = progress + '%';
+
+        try {
+          switch (issue.fixType) {
+            case 'fix-indentation': {
+              fixed = normalizeIndentation(fixed);
+              break;
+            }
+
+            case 'replace': {
+              if (issue.fixData && issue.fixData.find && issue.fixData.replace && fixed.includes(issue.fixData.find)) {
+                fixed = fixed.replace(new RegExp(escRE(issue.fixData.find), 'g'), issue.fixData.replace);
+              }
+              break;
+            }
+
+            case 'add-security-field': {
+              const field = issue.fixData?.field;
+              const value = issue.fixData?.value;
+              if (!field) break;
+              if (fixed.includes(field + ':')) break;
+
+              const lines = fixed.split('\n');
+
+              const templateIdx = lines.findIndex(l => l.trim() === 'template:');
+              let tSpecIdx = -1;
+              let tSpecIndent = -1;
+              let tSpecEnd = -1;
+              if (templateIdx >= 0) {
+                for (let j = templateIdx + 1; j < lines.length; j++) {
+                  if (lines[j].trim() === 'spec:') { tSpecIdx = j; break; }
+                }
+                if (tSpecIdx >= 0) {
+                  tSpecIndent = lines[tSpecIdx].search(/\S|$/);
+                  tSpecEnd = lines.length;
+                  for (let j = tSpecIdx + 1; j < lines.length; j++) {
+                    if (lines[j].trim() && lines[j].search(/\S|$/) <= tSpecIndent) { tSpecEnd = j; break; }
+                  }
+                }
+              }
+
+              const containersIdx = lines.findIndex(l => l.trim() === 'containers:' || l.trim().startsWith('containers:'));
+              if (containersIdx >= 0) {
+                let containerStart = -1;
+                for (let j = containersIdx + 1; j < lines.length; j++) {
+                  if (lines[j].trim().startsWith('- name:')) { containerStart = j; break; }
+                }
+
+                if (containerStart >= 0) {
+                  const cIndent = lines[containerStart].search(/\S|$/);
+                  let cEnd = lines.length;
+                  for (let j = containerStart + 1; j < lines.length; j++) {
+                    if (lines[j].trim() && lines[j].search(/\S|$/) <= cIndent) { cEnd = j; break; }
+                  }
+
+                  let secIdx = -1;
+                  for (let j = containerStart + 1; j < cEnd; j++) {
+                    if (lines[j].trim().startsWith('securityContext:')) { secIdx = j; break; }
+                  }
+
+                  if (secIdx >= 0) {
+                    const secIndent = lines[secIdx].search(/\S|$/);
+                    lines.splice(secIdx + 1, 0, `${' '.repeat(secIndent + 2)}${field}: ${value}`);
+                    fixed = lines.join('\n');
+                    break;
+                  }
+
+                  lines.splice(containerStart + 1, 0,
+                    `${' '.repeat(cIndent + 2)}securityContext:`,
+                    `${' '.repeat(cIndent + 4)}${field}: ${value}`
+                  );
+                  fixed = lines.join('\n');
+                  break;
+                }
+              }
+
+              if (tSpecIdx >= 0) {
+                let podSecIdx = -1;
+                for (let j = tSpecIdx + 1; j < tSpecEnd; j++) {
+                  if (lines[j].trim().startsWith('securityContext:')) { podSecIdx = j; break; }
+                }
+
+                if (podSecIdx >= 0) {
+                  const podIndent = lines[podSecIdx].search(/\S|$/);
+                  lines.splice(podSecIdx + 1, 0, `${' '.repeat(podIndent + 2)}${field}: ${value}`);
+                  fixed = lines.join('\n');
+                  break;
+                }
+
+                lines.splice(tSpecIdx + 1, 0,
+                  `${' '.repeat(tSpecIndent + 2)}securityContext:`,
+                  `${' '.repeat(tSpecIndent + 4)}${field}: ${value}`
+                );
+                fixed = lines.join('\n');
+                break;
+              }
+
+              break;
+            }
+
+            case 'add-capabilities': {
+              if (fixed.includes('capabilities:')) break;
+              const lines = fixed.split('\n');
+              const secIdx = lines.findIndex(l => l.trim().startsWith('securityContext:'));
+              if (secIdx >= 0) {
+                const indent = lines[secIdx].search(/\S|$/);
+                lines.splice(secIdx + 1, 0,
+                  `${' '.repeat(indent + 2)}capabilities:`,
+                  `${' '.repeat(indent + 4)}drop:`,
+                  `${' '.repeat(indent + 6)}- ALL`
+                );
+                fixed = lines.join('\n');
+              } else {
+                const cIdx = lines.findIndex(l => l.trim().startsWith('- name:'));
+                if (cIdx >= 0) {
+                  const indent = lines[cIdx].search(/\S|$/);
+                  lines.splice(cIdx + 1, 0,
+                    `${' '.repeat(indent + 2)}securityContext:`,
+                    `${' '.repeat(indent + 4)}capabilities:`,
+                    `${' '.repeat(indent + 6)}drop:`,
+                    `${' '.repeat(indent + 8)}- ALL`
+                  );
+                  fixed = lines.join('\n');
+                }
+              }
+              break;
+            }
+
+            case 'add-seccomp': {
+              if (fixed.includes('seccompProfile:')) break;
+              const lines = fixed.split('\n');
+
+              const templateIdx = lines.findIndex(l => l.trim() === 'template:');
+              if (templateIdx < 0) break;
+
+              let specIdx = -1;
+              for (let i2 = templateIdx + 1; i2 < lines.length; i2++) {
+                if (lines[i2].trim() === 'spec:') { specIdx = i2; break; }
+              }
+              if (specIdx < 0) break;
+
+              const specIndent = lines[specIdx].search(/\S|$/);
+              let specEnd = lines.length;
+              for (let j = specIdx + 1; j < lines.length; j++) {
+                if (lines[j].trim() && lines[j].search(/\S|$/) <= specIndent) { specEnd = j; break; }
+              }
+
+              let podSecIdx = -1;
+              for (let j = specIdx + 1; j < specEnd; j++) {
+                if (lines[j].trim().startsWith('securityContext:')) { podSecIdx = j; break; }
+              }
+
+              if (podSecIdx >= 0) {
+                const podSecIndent = lines[podSecIdx].search(/\S|$/);
+                let podSecEnd = specEnd;
+                for (let j = podSecIdx + 1; j < specEnd; j++) {
+                  if (lines[j].trim() && lines[j].search(/\S|$/) <= podSecIndent) { podSecEnd = j; break; }
+                }
+
+                let hasSeccomp = false;
+                for (let j = podSecIdx + 1; j < podSecEnd; j++) {
+                  if (lines[j].trim().startsWith('seccompProfile:')) { hasSeccomp = true; break; }
+                }
+                if (!hasSeccomp) {
+                  lines.splice(podSecEnd, 0,
+                    `${' '.repeat(podSecIndent + 2)}seccompProfile:`,
+                    `${' '.repeat(podSecIndent + 4)}type: RuntimeDefault`
+                  );
+                }
+                fixed = lines.join('\n');
+                break;
+              }
+
+              lines.splice(specIdx + 1, 0,
+                `${' '.repeat(specIndent + 2)}securityContext:`,
+                `${' '.repeat(specIndent + 4)}seccompProfile:`,
+                `${' '.repeat(specIndent + 6)}type: RuntimeDefault`
+              );
+              fixed = lines.join('\n');
+              break;
+            }
+
+            case 'add-resources': {
+              const lines = fixed.split('\n');
+              const cIdx = lines.findIndex(l => l.trim().startsWith('- name:'));
+              if (cIdx < 0) break;
+
+              const cIndent = lines[cIdx].search(/\S|$/);
+              let cEnd = lines.length;
+              for (let j = cIdx + 1; j < lines.length; j++) {
+                if (lines[j].trim() && lines[j].search(/\S|$/) <= cIndent) { cEnd = j; break; }
+              }
+
+              let resourcesIdx = -1;
+              for (let j = cIdx + 1; j < cEnd; j++) {
+                if (lines[j].trim().startsWith('resources:')) { resourcesIdx = j; break; }
+              }
+
+              const addMissingUnderResources = () => {
+                const rIndent = lines[resourcesIdx].search(/\S|$/);
+                let rEnd = cEnd;
+                for (let j = resourcesIdx + 1; j < cEnd; j++) {
+                  if (lines[j].trim() && lines[j].search(/\S|$/) <= rIndent) { rEnd = j; break; }
+                }
+
+                let hasLimits = false;
+                let hasRequests = false;
+                for (let j = resourcesIdx + 1; j < rEnd; j++) {
+                  const t = lines[j].trim();
+                  if (t.startsWith('limits:')) hasLimits = true;
+                  if (t.startsWith('requests:')) hasRequests = true;
+                }
+
+                const blocks = [];
+                if (!hasLimits) {
+                  blocks.push(
+                    `${' '.repeat(rIndent + 2)}limits:`,
+                    `${' '.repeat(rIndent + 4)}cpu: "500m"`,
+                    `${' '.repeat(rIndent + 4)}memory: "512Mi"`
+                  );
+                }
+                if (!hasRequests) {
+                  blocks.push(
+                    `${' '.repeat(rIndent + 2)}requests:`,
+                    `${' '.repeat(rIndent + 4)}cpu: "250m"`,
+                    `${' '.repeat(rIndent + 4)}memory: "256Mi"`
+                  );
+                }
+
+                if (blocks.length) lines.splice(rEnd, 0, ...blocks);
+              };
+
+              if (resourcesIdx >= 0) {
+                addMissingUnderResources();
+                fixed = lines.join('\n');
+                break;
+              }
+
+              let insertIdx = cIdx + 1;
+              for (let j = cIdx + 1; j < cEnd; j++) {
+                if (lines[j].trim().startsWith('image:')) { insertIdx = j + 1; break; }
+              }
+
+              lines.splice(insertIdx, 0,
+                `${' '.repeat(cIndent + 2)}resources:`,
+                `${' '.repeat(cIndent + 4)}limits:`,
+                `${' '.repeat(cIndent + 6)}cpu: "500m"`,
+                `${' '.repeat(cIndent + 6)}memory: "512Mi"`,
+                `${' '.repeat(cIndent + 4)}requests:`,
+                `${' '.repeat(cIndent + 6)}cpu: "250m"`,
+                `${' '.repeat(cIndent + 6)}memory: "256Mi"`
+              );
+
+              fixed = lines.join('\n');
+              break;
+            }
+
+            case 'add-probe': {
+              const type = issue.fixData?.type;
+              const probeKey = type === 'readiness' ? 'readinessProbe' : 'livenessProbe';
+              if (fixed.includes(probeKey + ':')) break;
+
+              const lines = fixed.split('\n');
+              const cIdx = lines.findIndex(l => l.trim().startsWith('- name:'));
+              if (cIdx < 0) break;
+
+              const cIndent = lines[cIdx].search(/\S|$/);
+              let cEnd = lines.length;
+              for (let j = cIdx + 1; j < lines.length; j++) {
+                if (lines[j].trim() && lines[j].search(/\S|$/) <= cIndent) { cEnd = j; break; }
+              }
+
+              let insertIdx = cEnd;
+
+              const findBlockEnd = (startIdx) => {
+                const startIndent = lines[startIdx].search(/\S|$/);
+                for (let k = startIdx + 1; k < cEnd; k++) {
+                  if (lines[k].trim() && lines[k].search(/\S|$/) <= startIndent) return k;
+                }
+                return cEnd;
+              };
+
+              for (let j = cIdx + 1; j < cEnd; j++) {
+                const t = lines[j].trim();
+                if (t === 'ports:' || t.startsWith('ports:') || t === 'resources:' || t.startsWith('resources:') || t === 'securityContext:' || t.startsWith('securityContext:')) {
+                  insertIdx = Math.max(insertIdx, findBlockEnd(j));
+                }
+              }
+
+              lines.splice(insertIdx, 0,
+                `${' '.repeat(cIndent + 2)}${probeKey}:`,
+                `${' '.repeat(cIndent + 4)}httpGet:`,
+                `${' '.repeat(cIndent + 6)}path: /health`,
+                `${' '.repeat(cIndent + 6)}port: 8080`,
+                `${' '.repeat(cIndent + 4)}initialDelaySeconds: 30`,
+                `${' '.repeat(cIndent + 4)}periodSeconds: 10`
+              );
+
+              fixed = lines.join('\n');
+              break;
+            }
+
+            case 'add-service-account': {
+              if (fixed.includes('serviceAccountName:')) break;
+              const lines = fixed.split('\n');
+              const templateIdx = lines.findIndex(l => l.trim() === 'template:');
+              if (templateIdx >= 0) {
+                let specIdx = -1;
+                for (let i2 = templateIdx + 1; i2 < lines.length; i2++) {
+                  if (lines[i2].trim() === 'spec:') { specIdx = i2; break; }
+                }
+                if (specIdx >= 0) {
+                  const indent = lines[specIdx].search(/\S|$/);
+                  lines.splice(specIdx + 1, 0, `${' '.repeat(indent + 2)}serviceAccountName: app-sa`);
+                  fixed = lines.join('\n');
+                }
+              }
+              break;
+            }
+
+            case 'add-automount-token': {
+              if (fixed.includes('automountServiceAccountToken:')) break;
+              const lines = fixed.split('\n');
+              const templateIdx = lines.findIndex(l => l.trim() === 'template:');
+              if (templateIdx >= 0) {
+                let specIdx = -1;
+                for (let i2 = templateIdx + 1; i2 < lines.length; i2++) {
+                  if (lines[i2].trim() === 'spec:') { specIdx = i2; break; }
+                }
+                if (specIdx >= 0) {
+                  const indent = lines[specIdx].search(/\S|$/);
+                  lines.splice(specIdx + 1, 0, `${' '.repeat(indent + 2)}automountServiceAccountToken: false`);
+                  fixed = lines.join('\n');
+                }
+              }
+              break;
+            }
+          }
+        } catch (e) {
+          addTerminalLine('  [FAIL] ' + issue.title);
+        }
+
+        if (before !== fixed) {
+          fixCount++;
+          addTerminalLine('  [OK] ' + issue.title);
+          updateLiveStats(fixed);
+          await new Promise(r => setTimeout(r, 250));
+        } else {
+          addTerminalLine('  [SKIP] ' + issue.title);
+          await new Promise(r => setTimeout(r, 120));
+        }
+      }
+
+      if (fixCount > 0) {
+        state.yamlContent = fixed;
+        state.lastValidatedContent = fixed;
+        $('yaml-editor').value = fixed;
+
+        // refresh indicators immediately
+        state.syntaxErrors = validateYAMLSyntax(state.yamlContent);
+        checkIndentation();
+        updateLineNumbers();
+        updateValidationStatus();
+        setScanBtnState();
+        persistStateSoon();
+        addTerminalLine('[AUTO-FIX] Applied ' + fixCount + '/' + totalFixes + ' fixes successfully');
+      } else {
+        addTerminalLine('[AUTO-FIX] No fixes applied');
+      }
+
+      state.isAutoFixing = false;
+      progressWrap.classList.add('hidden');
+      live.classList.add('hidden');
+
+      await analyzeYAML(true);
+
+      // Dashboard + button visibility is controlled by updateDashboard() based on latest scan
+      updateDashboard();
+      safeCreateIcons();
+    }
+
+    function getGrade(score) {
+      return score >= 90 ? 'A+' : score >= 80 ? 'A' : score >= 70 ? 'B' : score >= 60 ? 'C' : score >= 50 ? 'D' : 'F';
+    }
+
+    function buildReportPayload() {
+      if (!state.result || state.result.status !== 'success') return null;
+      const grade = getGrade(state.result.score);
+      return {
+        app: 'K8S Guardian',
+        version: APP_VERSION,
+        timestamp: new Date().toISOString(),
+        score: state.result.score,
+        grade,
+        manifests: state.result.manifests,
+        syntaxErrorCount: state.result.syntaxErrorCount,
+        autoFixable: state.result.autoFixable,
+        totals: {
+          critical: state.result.issues.critical.length,
+          high: state.result.issues.high.length,
+          medium: state.result.issues.medium.length,
+          low: state.result.issues.low.length,
+          passed: state.result.issues.passed.length,
+          totalFindings: state.result.totalIssues
+        },
+        enabledChecks: state.enabledChecks,
+        issues: state.result.issues
+      };
+    }
+
+    function exportReport() {
+      const report = buildReportPayload();
+      if (!report) return;
+
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'k8s-guardian-scan-report.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      addTerminalLine('[EXPORT] JSON security report downloaded');
+    }
+
+    function exportPDF() {
+      const report = buildReportPayload();
+      if (!report) return;
+
+      const jspdfNS = window.jspdf;
+      if (!jspdfNS || !jspdfNS.jsPDF) {
+        alert('PDF engine not loaded yet. Please try again in a moment.');
+        return;
+      }
+
+      const { jsPDF } = jspdfNS;
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+
+      const margin = 44;
+      const usableW = pageWidth - margin * 2;
+      let y = 52;
+
+      // Header
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(20);
+      doc.text('K8S Guardian — Scan Report', margin, y);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      y += 16;
+      doc.setTextColor(100);
+      doc.text(`Version: ${report.version}   •   Generated: ${new Date(report.timestamp).toLocaleString()}`, margin, y);
+      y += 14;
+      doc.text('Developed by Chandan Kumar', margin, y);
+      doc.setTextColor(0);
+
+      // Score strip
+      y += 18;
+      doc.setDrawColor(30, 41, 59);
+      doc.setFillColor(15, 23, 42);
+      doc.roundedRect(margin, y, usableW, 54, 10, 10, 'F');
+
+      doc.setTextColor(226, 232, 240);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('Security Score', margin + 16, y + 22);
+
+      doc.setFontSize(20);
+      doc.text(`${report.score}/100`, margin + 16, y + 46);
+
+      doc.setFontSize(14);
+      doc.text(`Grade: ${report.grade}`, margin + 140, y + 46);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      const metaRight = `Manifests: ${report.manifests}   •   Syntax Errors: ${report.syntaxErrorCount}   •   Auto-fixable: ${report.autoFixable}`;
+      const metaRightWrapped = doc.splitTextToSize(metaRight, usableW - 260);
+      doc.text(metaRightWrapped, margin + 260, y + 34);
+
+      doc.setTextColor(0);
+      y += 78;
+
+      // Findings table
+      const rows = [];
+      const pushRows = (sev, arr) => {
+        (arr || []).forEach((it) => {
+          rows.push([
+            sev,
+            it.category || '',
+            it.title || '',
+            String(it.message || ''),
+            String(it.fix || '')
+          ]);
+        });
+      };
+      pushRows('CRITICAL', report.issues.critical);
+      pushRows('HIGH', report.issues.high);
+      pushRows('MEDIUM', report.issues.medium);
+      pushRows('LOW', report.issues.low);
+
+      const hasAutoTable = typeof doc.autoTable === 'function';
+      if (hasAutoTable) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        doc.text('Findings', margin, y);
+        y += 10;
+
+        // IMPORTANT: Column widths must fit the page. Total must be <= usableW.
+        // usableW ~ 507pt on A4 with margin=44.
+        const colW = {
+          sev: 62,
+          cat: 70,
+          title: 110,
+          msg: 132,
+          fix: usableW - (62 + 70 + 110 + 132) // remainder
+        };
+
+        doc.autoTable({
+          startY: y,
+          margin: { left: margin, right: margin },
+          tableWidth: usableW,
+          head: [["Severity", "Category", "Title", "Message", "Suggested Fix"]],
+          body: rows.length ? rows : [["-", "-", "No findings", "-", "-"]],
+          styles: {
+            font: 'helvetica',
+            fontSize: 8,
+            cellPadding: 5,
+            overflow: 'linebreak',
+            valign: 'top'
+          },
+          headStyles: {
+            fillColor: [30, 41, 59],
+            textColor: [226, 232, 240],
+            fontStyle: 'bold',
+            fontSize: 9
+          },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+          columnStyles: {
+            0: { cellWidth: colW.sev },
+            1: { cellWidth: colW.cat },
+            2: { cellWidth: colW.title },
+            3: { cellWidth: colW.msg },
+            4: { cellWidth: colW.fix }
+          },
+          didParseCell: function (data) {
+            if (data.section === 'body' && data.column.index === 0) {
+              const v = String(data.cell.raw || '');
+              if (v === 'CRITICAL') data.cell.styles.textColor = [220, 38, 38];
+              else if (v === 'HIGH') data.cell.styles.textColor = [249, 115, 22];
+              else if (v === 'MEDIUM') data.cell.styles.textColor = [234, 179, 8];
+              else if (v === 'LOW') data.cell.styles.textColor = [59, 130, 246];
+            }
+          }
+        });
+      } else {
+        // Fallback (no table plugin)
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        doc.text('Findings', margin, y);
+        y += 16;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+
+        const lines = rows.length ? rows.map(r => `- [${r[0]}] ${r[1]}: ${r[2]} | ${r[3]} | Fix: ${r[4]}`) : ['No findings'];
+        const wrapped = doc.splitTextToSize(lines.join('\n'), usableW);
+        doc.text(wrapped, margin, y);
+      }
+
+      // Footer on every page (page number + developer credit)
+      const pages = doc.getNumberOfPages();
+      for (let p = 1; p <= pages; p++) {
+        doc.setPage(p);
+        doc.setFontSize(9);
+        doc.setTextColor(100);
+        doc.text(`K8S Guardian • Page ${p}/${pages}`, margin, pageHeight - 24);
+        doc.text('Developed by Chandan Kumar', pageWidth - margin, pageHeight - 24, { align: 'right' });
+        doc.setTextColor(0);
+      }
+
+      const safeTs = report.timestamp.replace(/[:.]/g, '-');
+      doc.save(`k8s-guardian-scan-report-${safeTs}.pdf`);
+      addTerminalLine('[EXPORT] PDF security report downloaded');
+    }
+  </script>
+</body>
+</html>

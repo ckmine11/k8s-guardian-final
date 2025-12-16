@@ -1,0 +1,31 @@
+{
+  "name": "k8s-guardian",
+  "version": "1.0.0",
+  "description": "Advanced Kubernetes YAML Security Scanner with Real-time Validation and Auto-Fix Engine",
+  "main": "index.html",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "serve": "npx http-server -p 8080"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/k8s-guardian.git"
+  },
+  "keywords": [
+    "kubernetes",
+    "k8s",
+    "security",
+    "scanner",
+    "yaml",
+    "validation",
+    "auto-fix",
+    "devops",
+    "cloud-native"
+  ],
+  "author": "Chandan Kumar",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/yourusername/k8s-guardian/issues"
+  },
+  "homepage": "https://github.com/yourusername/k8s-guardian#readme"
+}
