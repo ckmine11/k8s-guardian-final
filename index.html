@@ -1324,12 +1324,34 @@ spec:
             const lines = state.yamlContent.split('\n');
             lines.forEach((line, index) => {
                 if (!line.trim() || line.trim().startsWith('#')) return;
-                const indent = line.search(/\S|$/);
+                const fixed = line.replace(/\t/g, '  '); // Visualize tabs as spaces for calc
+                const indent = fixed.search(/\S|$/);
+                // Check 1: Tabs
                 if (line.includes('\t')) {
                     state.indentationIssues.push({ line: index + 1, type: 'TAB', message: 'Tab characters detected', severity: 'error' });
                 }
+                // Check 2: Odd indentation
                 if (indent % 2 !== 0 && indent > 0) {
                     state.indentationIssues.push({ line: index + 1, type: 'INDENT', message: 'Odd indentation: ' + indent + ' spaces', severity: 'warning' });
+                }
+                // Check 3: Floating Children (Heuristic)
+                // If previous line ended with colon and current line is not indented more
+                if (index > 0) {
+                    const prevLine = lines[index - 1].trim();
+                    if (prevLine.endsWith(':') && !prevLine.includes(' {}') && !prevLine.includes(' []')) {
+                        const prevIndent = lines[index - 1].search(/\S|$/);
+                        // If we are same or less indented than parent, it's likely wrong
+                        // But be careful of list items! "- name:" has indentation relative to "-" not the start?
+                        // Actually standard YAML: parent:\n  child: val (indent must be >)
+                        if (indent <= prevIndent) {
+                            // Only flag if it looks like a property?
+                            // For safety, let's stick to the Keys Requiring Children list to be less annoying
+                            const keysRequiringChildren = ['securityContext', 'resources', 'selector', 'template', 'containers', 'ports', 'env', 'volumeMounts'];
+                            if (keysRequiringChildren.some(k => prevLine.includes(k))) {
+                                state.indentationIssues.push({ line: index + 1, type: 'STRUCTURE', message: 'Likely missing indentation', severity: 'error' });
+                            }
+                        }
+                    }
                 }
             });
             const btn = $('indent-fix-btn');
