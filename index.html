@@ -950,7 +950,11 @@ spec:
     spec:
       containers:
         - name: web
-          image: nginx:latest
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+          image: nginx:1.21.0
           ports:
             - containerPort: 80`;
         function safeCreateIcons() {
@@ -1393,14 +1397,46 @@ spec:
             const tabsFixed = original.replace(/\t/g, '  ');
             const fixOddIndent = (src) => {
                 const lines = src.split('\n');
-                const fixedLines = lines.map((line) => {
+                let parentIndent = 0;
+                let lastKey = '';
+                // Common K8s structural keys that often have children
+                const parents = ['spec', 'template', 'metadata', 'containers', 'securityContext', 'resources', 'limits', 'requests', 'ports', 'text'];
+                const fixedLines = lines.map((line, idx) => {
                     if (!line || !line.trim() || line.trim().startsWith('#')) return line;
-                    const indent = line.search(/\S|$/);
-                    if (indent > 0 && indent % 2 !== 0) {
-                        const newIndent = indent - 1; // nearest even (reduce only)
-                        return ' '.repeat(newIndent) + line.slice(indent);
+                    let fixed = line.replace(/\t/g, '  '); // Ensure no tabs
+                    const trimmed = fixed.trim();
+                    const currentIndent = fixed.search(/\S|$/);
+                    // HEURISTIC 1: Fix odd indentation
+                    if (currentIndent > 0 && currentIndent % 2 !== 0) {
+                        fixed = ' '.repeat(currentIndent - 1) + fixed.slice(currentIndent);
                     }
-                    return line;
+                    // HEURISTIC 2: Fix "floating" attributes that should be nested under the previous empty parent
+                    // e.g. "securityContext:\n readOnlyRootFilesystem: true" -> indent the second line
+                    if (idx > 0) {
+                        const prevLine = lines[idx - 1].trim();
+                        // If previous line ends with colon and has no value (implied object/list parent)
+                        // And current line is NOT a new block starter (like - name:) unless it's a child list item
+                        if (prevLine.endsWith(':') && !prevLine.includes(' {}') && !prevLine.includes(' []')) {
+                            const prevIndent = lines[idx - 1].search(/\S|$/);
+                            const expectedIndent = prevIndent + 2;
+                            // If current line is dedented or same level as parent, but really looks like it should be valid property
+                            // This is risky, so we scope it to common mistakes or known schemas if possible.
+                            // For now, if current indent <= prevIndent, FORCE indent it.
+                            if (currentIndent <= prevIndent) {
+                                // Check if it's a new section or a misplaced child?
+                                // If it's a known property of the parent, we can be confident?
+                                // Hard to know parent context easily without full parser.
+                                // Simple rule: If the user just typed "securityContext:" and the next line is "readOnly...", 
+                                // they almost certainly meant to indent.
+                                const keysRequiringChildren = ['securityContext', 'resources', 'selector', 'template', 'containers', 'ports', 'env', 'volumeMounts'];
+                                const prevKey = prevLine.replace(':', '');
+                                if (keysRequiringChildren.some(k => prevLine.includes(k))) {
+                                    fixed = ' '.repeat(expectedIndent) + trimmed;
+                                }
+                            }
+                        }
+                    }
+                    return fixed;
                 });
                 return fixedLines.join('\n');
             };
