@@ -1324,34 +1324,12 @@ spec:
             const lines = state.yamlContent.split('\n');
             lines.forEach((line, index) => {
                 if (!line.trim() || line.trim().startsWith('#')) return;
-                const fixed = line.replace(/\t/g, '  '); // Visualize tabs as spaces for calc
-                const indent = fixed.search(/\S|$/);
-                // Check 1: Tabs
+                const indent = line.search(/\S|$/);
                 if (line.includes('\t')) {
                     state.indentationIssues.push({ line: index + 1, type: 'TAB', message: 'Tab characters detected', severity: 'error' });
                 }
-                // Check 2: Odd indentation
                 if (indent % 2 !== 0 && indent > 0) {
                     state.indentationIssues.push({ line: index + 1, type: 'INDENT', message: 'Odd indentation: ' + indent + ' spaces', severity: 'warning' });
-                }
-                // Check 3: Floating Children (Heuristic)
-                // If previous line ended with colon and current line is not indented more
-                if (index > 0) {
-                    const prevLine = lines[index - 1].trim();
-                    if (prevLine.endsWith(':') && !prevLine.includes(' {}') && !prevLine.includes(' []')) {
-                        const prevIndent = lines[index - 1].search(/\S|$/);
-                        // If we are same or less indented than parent, it's likely wrong
-                        // But be careful of list items! "- name:" has indentation relative to "-" not the start?
-                        // Actually standard YAML: parent:\n  child: val (indent must be >)
-                        if (indent <= prevIndent) {
-                            // Only flag if it looks like a property?
-                            // For safety, let's stick to the Keys Requiring Children list to be less annoying
-                            const keysRequiringChildren = ['securityContext', 'resources', 'selector', 'template', 'containers', 'ports', 'env', 'volumeMounts'];
-                            if (keysRequiringChildren.some(k => prevLine.includes(k))) {
-                                state.indentationIssues.push({ line: index + 1, type: 'STRUCTURE', message: 'Likely missing indentation', severity: 'error' });
-                            }
-                        }
-                    }
                 }
             });
             const btn = $('indent-fix-btn');
@@ -1419,46 +1397,14 @@ spec:
             const tabsFixed = original.replace(/\t/g, '  ');
             const fixOddIndent = (src) => {
                 const lines = src.split('\n');
-                let parentIndent = 0;
-                let lastKey = '';
-                // Common K8s structural keys that often have children
-                const parents = ['spec', 'template', 'metadata', 'containers', 'securityContext', 'resources', 'limits', 'requests', 'ports', 'text'];
-                const fixedLines = lines.map((line, idx) => {
+                const fixedLines = lines.map((line) => {
                     if (!line || !line.trim() || line.trim().startsWith('#')) return line;
-                    let fixed = line.replace(/\t/g, '  '); // Ensure no tabs
-                    const trimmed = fixed.trim();
-                    const currentIndent = fixed.search(/\S|$/);
-                    // HEURISTIC 1: Fix odd indentation
-                    if (currentIndent > 0 && currentIndent % 2 !== 0) {
-                        fixed = ' '.repeat(currentIndent - 1) + fixed.slice(currentIndent);
+                    const indent = line.search(/\S|$/);
+                    if (indent > 0 && indent % 2 !== 0) {
+                        const newIndent = indent - 1; // nearest even (reduce only)
+                        return ' '.repeat(newIndent) + line.slice(indent);
                     }
-                    // HEURISTIC 2: Fix "floating" attributes that should be nested under the previous empty parent
-                    // e.g. "securityContext:\n readOnlyRootFilesystem: true" -> indent the second line
-                    if (idx > 0) {
-                        const prevLine = lines[idx - 1].trim();
-                        // If previous line ends with colon and has no value (implied object/list parent)
-                        // And current line is NOT a new block starter (like - name:) unless it's a child list item
-                        if (prevLine.endsWith(':') && !prevLine.includes(' {}') && !prevLine.includes(' []')) {
-                            const prevIndent = lines[idx - 1].search(/\S|$/);
-                            const expectedIndent = prevIndent + 2;
-                            // If current line is dedented or same level as parent, but really looks like it should be valid property
-                            // This is risky, so we scope it to common mistakes or known schemas if possible.
-                            // For now, if current indent <= prevIndent, FORCE indent it.
-                            if (currentIndent <= prevIndent) {
-                                // Check if it's a new section or a misplaced child?
-                                // If it's a known property of the parent, we can be confident?
-                                // Hard to know parent context easily without full parser.
-                                // Simple rule: If the user just typed "securityContext:" and the next line is "readOnly...", 
-                                // they almost certainly meant to indent.
-                                const keysRequiringChildren = ['securityContext', 'resources', 'selector', 'template', 'containers', 'ports', 'env', 'volumeMounts'];
-                                const prevKey = prevLine.replace(':', '');
-                                if (keysRequiringChildren.some(k => prevLine.includes(k))) {
-                                    fixed = ' '.repeat(expectedIndent) + trimmed;
-                                }
-                            }
-                        }
-                    }
-                    return fixed;
+                    return line;
                 });
                 return fixedLines.join('\n');
             };
